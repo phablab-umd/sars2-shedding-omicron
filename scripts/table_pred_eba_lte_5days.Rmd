@@ -1,0 +1,514 @@
+---
+title: "model_all_data"
+author: "Jianyu"
+date: "3/23/2022"
+output:
+  html_document: default
+---
+analysis of shedding/periods
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Matrix)
+library(mvtnorm)
+library(lme4)
+library(lmec)
+library(tidyverse)
+library(stringr)
+source("z_create_matrix.R")
+set.seed(42)
+```
+
+Data: nomask rpr and spr files
+```{r}
+rpr_after <- read.csv("../working_files/nomask_pcr_sx_rpr.csv")
+rpr_after <- rpr_after %>% filter(days_past_onset<6|is.na(days_past_onset))
+
+spr_after <- read.csv("../working_files/nomask_pcr_sx_spr.csv")
+spr_after <- spr_after %>% filter(days_past_onset<6|is.na(days_past_onset))
+
+rpr_before <- read.csv(file = "../working_files/manuscript_1_all_61_nonpaired_pcr_sx_rpr.csv")
+rpr_before <- rpr_before %>% filter(days_past_onset<6|is.na(days_past_onset))
+
+spr_before <- read.csv(file = "../working_files/manuscript_1_all_61_nonpaired_pcr_sx_spr.csv")
+spr_before <- spr_before %>% filter(days_past_onset<6|is.na(days_past_onset))
+
+vars_of_interest <- c("subject_id", "sample_date", "sample_id","sample_type", 'omicron', 'variant', 'age_entry','sex_birth','days_past_onset', 'av_quant',"sample_quant", 'mdfy_sample_quant','cough_count', 'ur', 'lr', 'gi', 'sys')
+rpr_before <- rpr_before %>%
+  mutate(subject_id = as.factor(study_id),
+         omicron = 0,
+         variant = if_else(S.gene.dropout == "TRUE", "Alpha", "Other")) %>% 
+  select(all_of(vars_of_interest))
+
+rpr_before$days_past_onset[is.na(rpr_before$days_past_onset)] <- -1
+
+spr_before <- spr_before %>%
+  mutate(subject_id = as.factor(study_id),
+         omicron = 0,
+         variant = if_else(S.gene.dropout == "TRUE", "Alpha", "Other"))%>% 
+  select(vars_of_interest)  
+
+rpr_after <- rpr_after %>% 
+  mutate(omicron = if_else(seq_variant == "Delta", 0, 1),
+         subject_id = as.factor(subject_id),
+         variant = if_else(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1", "Omicron BA.2"), "Omicron", 'Delta')) %>% 
+  select(vars_of_interest)
+spr_after <- spr_after %>% 
+  mutate(omicron = if_else(seq_variant == "Delta", 0, 1),
+         subject_id = as.factor(subject_id),
+         variant = if_else(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1", "Omicron BA.2"), "Omicron", 'Delta')) %>% 
+  select(vars_of_interest)
+
+rpr_total <- bind_rows(rpr_before,rpr_after)
+spr_total <- bind_rows(spr_before,spr_after)
+```
+spr to subset the av_quant values (at sample level) for mt and saliva that will be used as predictors for later analysis
+```{r}
+mt <- spr_total %>% filter(sample_type == "Midturbinate Swab")
+mt <- mt %>% mutate(mt_av_quant = av_quant,
+                    log_mt = if_else(mt_av_quant==0, 0, log(mt_av_quant))) 
+mt <- mt %>% select(log_mt, mt_av_quant, subject_id, sample_date)
+
+saliva <- spr_total %>% filter(sample_type == "Saliva") 
+saliva <- saliva %>% mutate(sal_av_quant = av_quant,
+                             log_sal = if_else(sal_av_quant==0, 0, log(sal_av_quant)))
+saliva <- saliva %>% select(log_sal, sal_av_quant, subject_id, sample_date)
+```
+Use left_join on rpr_total to add mt and saliva values (at sample level) to the three datasets so we can use these variables as predictors for later analysis
+```{r}
+fine <- rpr_total %>% filter(sample_type == "G-II Fine Aerosol") %>%
+  left_join(mt, by=c("subject_id"="subject_id", "sample_date"="sample_date")) %>%
+  left_join(saliva, by=c("subject_id"="subject_id", "sample_date"="sample_date")) 
+length(unique(fine$subject_id))
+length(unique(fine$sample_id))
+
+coarse <- rpr_total %>% filter(sample_type == "G-II Coarse Aerosol") %>%
+  left_join(mt, by=c("subject_id"="subject_id", "sample_date"="sample_date")) %>% 
+  left_join(saliva, by=c("subject_id"="subject_id", "sample_date"="sample_date")) 
+
+length(unique(coarse$subject_id))
+length(unique(coarse$sample_id))
+```
+create IQR adjustment values
+these are multiplied into the power component of an exponential, so essentially 1 = no adjustment
+these are needed for table 4, so save to working files
+```{r}
+# MT: IQR for the log value
+mt_rpr <- rpr_total %>% filter(sample_type == "Midturbinate Swab") %>% 
+  mutate(log_mt_rpr = if_else(sample_quant==0, 0, log(sample_quant)))
+log_mt_IQR <- IQR(mt_rpr$log_mt_rpr) 
+
+# saliva: IQR for the log value
+sal_rpr <- rpr_total %>% filter(sample_type == "Saliva") %>% 
+  mutate(log_sal_rpr = if_else(sample_quant==0, 0, log(sample_quant)))
+log_sal_IQR <- IQR(sal_rpr$log_sal_rpr) 
+
+
+#IQRs for symptom scores were from table_1_total
+table_1_all <- read.csv(file="../output/si_tab2_demo_lte_5days.csv")
+table_1_iqr_adjust <- table_1_all %>% filter(grepl("IQR",vars)) %>% select(vars,All.participants)
+iqr_adjust_sx <- table_1_iqr_adjust$All.participants %>% strsplit("\\(") %>% lapply(function(x) {x %>% tail(1) %>% gsub("\\)","",.)}) %>% unlist() %>% strsplit(" - ") %>% lapply(setNames,c("lower","upper")) %>% bind_rows()
+iqr_adjust_sx$vars <- table_1_iqr_adjust$vars
+iqr_adjust_sx$iqr_adjust_val <- as.numeric(iqr_adjust_sx$upper) - as.numeric(iqr_adjust_sx$lower)
+
+IQRadjustlist <- list()
+IQRadjustlist[["log_sal"]] <- log_sal_IQR
+IQRadjustlist[["log_mt"]] <- log_mt_IQR
+IQRadjustlist[["cough_count"]] <- 1
+IQRadjustlist[["age_entry"]] <- 10
+IQRadjustlist[["days_past_onset"]] <- 1
+IQRadjustlist[["sex_birth"]] <- 1
+IQRadjustlist[["omicron"]] <- 1
+IQRadjustlist[["gi"]] <- iqr_adjust_sx %>% filter(vars=="Median gastrointestinal symptoms (IQR)") %>% pull(iqr_adjust_val)
+IQRadjustlist[["lr"]] <- iqr_adjust_sx %>% filter(vars=="Median lower respiratory symptoms (IQR)") %>% pull(iqr_adjust_val)
+IQRadjustlist[["sys"]] <- iqr_adjust_sx %>% filter(vars=="Median systemic symptoms (IQR)") %>% pull(iqr_adjust_val)
+IQRadjustlist[["ur"]] <- iqr_adjust_sx %>% filter(vars=="Median upper respiratory symptoms (IQR)") %>% pull(iqr_adjust_val)
+```
+
+fine aerosol LMEC
+```{r}
+Z_fine <- z_create_matrix(fine)
+cluster_fine <- as.numeric(factor(fine$subject_id))
+cens_fine <- fine$cens
+yL_fine <- fine$mdfy_sample_quant %>% log()
+```
+BIVARIATE ANALYSIS FOR FINE AEROSOL
+```{r}
+est_ci_fine_list <- list()
+
+lm <- lmer (yL_fine ~ (1|subject_id) + (1|subject_id:sample_date) + relevel(as.factor(variant), ref = "Other"), data=fine)
+  x_matrix <- getME(lm, "X")
+  fit_ML = lmec(yL=yL_fine, cens=cens_fine, X=x_matrix, Z=Z_fine, cluster=cluster_fine, maxstep = 200, varstruct = "unstructured", method = "ML")
+variant_list <- c('Intercept', "Alpha", "Delta", "Omicron")  
+for (i in 1:length(variant_list)) {
+  est <- fit_ML$beta[i]
+  se <- sqrt(diag(fit_ML$varFix))[i]
+  up <- est+1.96*se
+  low <- est-1.96*se
+  est_ci_fine_list[[i]] <- c(variant_list[i], est, low, up)
+  names(est_ci_fine_list[[i]]) <- c("varname","beta_lmec","ci_low","ci_high")
+}
+est_ci_fine_list_df <- bind_rows(est_ci_fine_list)
+
+
+vars_fine <- c('age_entry','sex_birth','days_past_onset', 'log_mt', 'log_sal', 'cough_count', 'ur', 'lr', 'gi', 'sys')
+
+for (i in vars_fine) {
+  print(paste0("BIVARIATE ANALYSIS FOR FINE AEROSOL AND ",i))
+  lm <- lmer (yL_fine ~ (1|subject_id) + (1|subject_id:sample_date) + eval(parse(text=i)), data=fine)
+  x_matrix <- getME(lm, "X")
+  fit_ML = lmec(yL=yL_fine, cens=cens_fine, X=x_matrix, Z=Z_fine, cluster=cluster_fine, maxstep = 200, varstruct = "unstructured", method = "ML")
+  est <- fit_ML$beta[2]
+  se <- sqrt(diag(fit_ML$varFix))[2]
+  up <- est+1.96*se
+  low <- est-1.96*se
+  est_ci_fine_list[[i]] <- c(i, est, low, up)
+  names(est_ci_fine_list[[i]]) <- c("varname","beta_lmec","ci_low","ci_high")
+}
+est_ci_fine_list_df <- bind_rows(est_ci_fine_list)
+
+```
+
+check which variables go into the next selection: 90% CI: est +/- 1.645*se
+```{r eval=FALSE, include=FALSE}
+est_ci_fine_list2 <- list()
+
+lm <- lmer (yL_fine ~ (1|subject_id) + (1|subject_id:sample_date) + relevel(as.factor(variant), ref = "Other"), data=fine)
+  x_matrix <- getME(lm, "X")
+  fit_ML = lmec(yL=yL_fine, cens=cens_fine, X=x_matrix, Z=Z_fine, cluster=cluster_fine, maxstep = 200, varstruct = "unstructured", method = "ML")
+variant_list <- c('Intercept', "Alpha", "Delta", "Omicron")  
+for (i in 1:length(variant_list)) {
+  est <- fit_ML$beta[i]
+  se <- sqrt(diag(fit_ML$varFix))[i]
+  up <- est+1.645*se
+  low <- est-1.645*se
+  est_ci_fine_list2[[i]] <- c(variant_list[i], est, low, up)
+  names(est_ci_fine_list2[[i]]) <- c("varname","beta_lmec","ci_low","ci_high")
+}
+est_ci_fine_list_df2 <- bind_rows(est_ci_fine_list2)
+
+vars_fine <- c('age_entry','sex_birth','days_past_onset', 'log_mt', 'log_sal', 'cough_count', 'ur', 'lr', 'gi', 'sys')
+
+
+for (i in vars_fine) {
+  print(paste0("BIVARIATE ANALYSIS FOR FINE AEROSOL AND ",i))
+  lm <- lmer (yL_fine ~ (1|subject_id) + (1|subject_id:sample_date) + eval(parse(text=i)), data=fine)
+  x_matrix <- getME(lm, "X")
+  fit_ML = lmec(yL=yL_fine, cens=cens_fine, X=x_matrix, Z=Z_fine, cluster=cluster_fine, maxstep = 200, varstruct = "unstructured", method = "ML")
+  est <- fit_ML$beta[2]
+  se <- sqrt(diag(fit_ML$varFix))[2]
+  up <- est+1.645*se
+  low <- est-1.645*se
+  est_ci_fine_list2[[i]] <- c(i, est, low, up)
+  names(est_ci_fine_list2[[i]]) <- c("varname","beta_lmec","ci_low","ci_high")
+}
+est_ci_fine_list_df2 <- bind_rows(est_ci_fine_list2)
+
+```
+
+##model selection based on AIC: 
+full model: ~omicron+age_entry+sex_birth+days_past_onset+log_mt+log_sal+cough_count+ur+lr+gi+sys
+keep: ~variant+age_entry+sex_birth
+```{r eval=FALSE, include=FALSE}
+vars <- c('log_mt', 'log_sal', 'cough_count', 'ur', 'lr', 'gi', 'sys')
+
+models <- list()
+
+for (i in 1:7){
+  vc <- combn(vars,i)
+  for (j in 1:ncol(vc)){
+    model <- paste0("age_entry+sex_birth+", paste0(vc[,j], collapse = "+"))
+    models <- c(models, model)
+  }
+}
+
+aic_final = 100000
+
+for (i in models){
+  lm <- lmer (as.formula(paste0("yL_fine ~(1|subject_id) + (1|subject_id:sample_date) +", i)), data=fine)
+  x_matrix <- getME(lm, "X")
+    #Run the LEMC()
+  fit_ML = lmec(yL=yL_fine, cens=cens_fine, X=x_matrix, Z=Z_fine, cluster=cluster_fine, maxstep = 200, varstruct = "unstructured", method = "ML")
+  ll<-fit_ML$loglik
+  aic <- -2*ll+2*(str_count(i,coll("+"))+2+6)
+  print(i)
+  if (aic_final>aic){
+    aic_final <- aic
+    model_final <- i
+  }
+}
+aic_final
+model_final
+
+for (i in models){
+  i <- paste0(i, "+relevel(as.factor(variant), ref = \"Other\")")
+  lm <- lmer (as.formula(paste0("yL_fine ~(1|subject_id) + (1|subject_id:sample_date) +", i)), data=fine)
+  x_matrix <- getME(lm, "X")
+    #Run the LEMC()
+  fit_ML = lmec(yL=yL_fine, cens=cens_fine, X=x_matrix, Z=Z_fine, cluster=cluster_fine, maxstep = 200, varstruct = "unstructured", method = "ML")
+  ll<-fit_ML$loglik
+  aic <- -2*ll+2*(str_count(i,coll("+"))+4+6)
+  print(i)
+  if (aic_final>aic){
+    aic_final <- aic
+    model_final <- i
+  }
+}
+aic_final
+model_final
+# 582.2597
+#"age_entry+sex_birth+log_sal+cough_count+sys+relevel(as.factor(variant), ref = \"Other\")"
+```
+
+Multivariable analysis for Fine aerosol
+```{r}
+est_ci_fine_multi <- c()
+lm <- lmer (yL_fine ~ (1|subject_id) + (1|subject_id:sample_date) + age_entry + sex_birth + relevel(as.factor(variant), ref = "Other")+log_sal+cough_count+sys, data=fine)
+x_matrix <- getME(lm, "X")
+
+#Run the LEMC()
+fit_ML = lmec(yL=yL_fine, cens=cens_fine, X=x_matrix, Z=Z_fine, cluster=cluster_fine, maxstep = 200, varstruct = "unstructured", method = "ML")
+
+vars <- c("intercept", "age_entry","sex_birth","Alpha", "Delta", "Omicron","log_sal","cough_count","sys")
+for (i in c(2:length(vars))){
+                est <- fit_ML$beta[i]
+                se <- sqrt(diag(fit_ML$varFix))[i]
+                up <- est+1.96*se
+                low <- est-1.96*se
+                est_ci <- c(vars[i], est, low, up)
+                est_ci_fine_multi <- rbind(est_ci_fine_multi, est_ci)
+}
+colnames(est_ci_fine_multi) <- c("varname","beta_lmec","ci_low","ci_high")
+est_ci_fine_multi
+ll<-fit_ML$loglik
+aic <- -2*ll+2*(9+6)
+aic
+#AIC: 582.2597
+```
+
+
+coarse aerosol LMEC
+```{r}
+Z_coarse<- z_create_matrix(coarse)
+cluster_coarse <- as.numeric(factor(coarse$subject_id))
+cens_coarse <- coarse$cens
+yL_coarse <- coarse$mdfy_sample_quant %>% log()
+```
+BIVARIATE ANALYSIS FOR COARSE AEROSOL
+```{r}
+est_ci_coarse_list <- list()
+
+lm <- lmer (yL_coarse ~ (1|subject_id) + (1|subject_id:sample_date) + relevel(as.factor(variant), ref = "Other"), data=coarse)
+  x_matrix <- getME(lm, "X")
+  fit_ML = lmec(yL=yL_coarse, cens=cens_coarse, X=x_matrix, Z=Z_coarse, cluster=cluster_coarse, maxstep = 200, varstruct = "unstructured", method = "ML")
+variant_list <- c('Intercept', "Alpha", "Delta", "Omicron")  
+for (i in 1:length(variant_list)) {
+  est <- fit_ML$beta[i]
+  se <- sqrt(diag(fit_ML$varFix))[i]
+  up <- est+1.96*se
+  low <- est-1.96*se
+  est_ci_coarse_list[[i]] <- c(variant_list[i], est, low, up)
+  names(est_ci_coarse_list[[i]]) <- c("varname","beta_lmec","ci_low","ci_high")
+}
+est_ci_coarse_list_df <- bind_rows(est_ci_coarse_list)
+
+
+vars_coarse <- c('age_entry','sex_birth','days_past_onset', 'log_mt', 'log_sal', 'cough_count', 'ur', 'lr', 'gi', 'sys')
+
+for (i in vars_coarse) {
+  print(paste0("BIVARIATE ANALYSIS FOR coarse AEROSOL AND ",i))
+  lm <- lmer (yL_coarse ~ (1|subject_id) + (1|subject_id:sample_date) + eval(parse(text=i)), data=coarse)
+  x_matrix <- getME(lm, "X")
+  fit_ML = lmec(yL=yL_coarse, cens=cens_coarse, X=x_matrix, Z=Z_coarse, cluster=cluster_coarse, maxstep = 200, varstruct = "unstructured", method = "ML")
+  est <- fit_ML$beta[2]
+  se <- sqrt(diag(fit_ML$varFix))[2]
+  up <- est+1.96*se
+  low <- est-1.96*se
+  est_ci_coarse_list[[i]] <- c(i, est, low, up)
+  names(est_ci_coarse_list[[i]]) <- c("varname","beta_lmec","ci_low","ci_high")
+}
+est_ci_coarse_list_df <- bind_rows(est_ci_coarse_list)
+
+```
+
+check which variables go into the next selection: 90% CI: est +/- 1.645*se
+```{r eval=FALSE, include=FALSE}
+est_ci_coarse_list2 <- list()
+
+lm <- lmer (yL_coarse ~ (1|subject_id) + (1|subject_id:sample_date) + relevel(as.factor(variant), ref = "Other"), data=coarse)
+  x_matrix <- getME(lm, "X")
+  fit_ML = lmec(yL=yL_coarse, cens=cens_coarse, X=x_matrix, Z=Z_coarse, cluster=cluster_coarse, maxstep = 200, varstruct = "unstructured", method = "ML")
+variant_list <- c('Intercept', "Alpha", "Delta", "Omicron")  
+for (i in 1:length(variant_list)) {
+  est <- fit_ML$beta[i]
+  se <- sqrt(diag(fit_ML$varFix))[i]
+  up <- est+1.645*se
+  low <- est-1.645*se
+  est_ci_coarse_list2[[i]] <- c(variant_list[i], est, low, up)
+  names(est_ci_coarse_list2[[i]]) <- c("varname","beta_lmec","ci_low","ci_high")
+}
+est_ci_coarse_list_df2 <- bind_rows(est_ci_coarse_list2)
+
+vars_coarse <- c('age_entry','sex_birth','days_past_onset', 'log_mt', 'log_sal', 'cough_count', 'ur', 'lr', 'gi', 'sys')
+
+
+for (i in vars_coarse) {
+  print(paste0("BIVARIATE ANALYSIS FOR coarse AEROSOL AND ",i))
+  lm <- lmer (yL_coarse ~ (1|subject_id) + (1|subject_id:sample_date) + eval(parse(text=i)), data=coarse)
+  x_matrix <- getME(lm, "X")
+  fit_ML = lmec(yL=yL_coarse, cens=cens_coarse, X=x_matrix, Z=Z_coarse, cluster=cluster_coarse, maxstep = 200, varstruct = "unstructured", method = "ML")
+  est <- fit_ML$beta[2]
+  se <- sqrt(diag(fit_ML$varFix))[2]
+  up <- est+1.645*se
+  low <- est-1.645*se
+  est_ci_coarse_list2[[i]] <- c(i, est, low, up)
+  names(est_ci_coarse_list2[[i]]) <- c("varname","beta_lmec","ci_low","ci_high")
+}
+est_ci_coarse_list_df2 <- bind_rows(est_ci_coarse_list2)
+
+```
+
+##model selection based on AIC: 
+full model: ~omicron+age_entry+sex_birth+days_past_onset+log_mt+log_sal+cough_count+ur+lr+gi+sys
+keep: ~variant+age_entry+sex_birth
+```{r eval=FALSE, include=FALSE}
+vars <- c('log_mt', 'log_sal',  'cough_count','lr', 'gi', 'sys')
+
+models <- list()
+
+for (i in 1:6){
+  vc <- combn(vars,i)
+  for (j in 1:ncol(vc)){
+    model <- paste0("age_entry+sex_birth+", paste0(vc[,j], collapse = "+"))
+    models <- c(models, model)
+  }
+}
+
+aic_final = 100000
+
+for (i in models){
+  lm <- lmer (as.formula(paste0("yL_coarse ~(1|subject_id) + (1|subject_id:sample_date) +", i)), data=coarse)
+x_matrix <- getME(lm, "X")
+  #Run the LEMC()
+fit_ML = lmec(yL=yL_coarse, cens=cens_coarse, X=x_matrix, Z=Z_coarse, cluster=cluster_coarse, maxstep = 200, varstruct = "unstructured", method = "ML")
+  ll<-fit_ML$loglik
+  aic <- -2*ll+2*(str_count(i,coll("+"))+2+6)
+  print(i)
+  if (aic_final>aic){
+    aic_final <- aic
+    model_final <- i
+  }
+}
+aic_final
+model_final
+
+for (i in models){
+  i <- paste0(i, "+relevel(as.factor(variant), ref = \"Other\")")
+  lm <- lmer (as.formula(paste0("yL_coarse ~(1|subject_id) + (1|subject_id:sample_date) +", i)), data=coarse)
+  x_matrix <- getME(lm, "X")
+    #Run the LEMC()
+  fit_ML = lmec(yL=yL_coarse, cens=cens_coarse, X=x_matrix, Z=Z_coarse, cluster=cluster_coarse, maxstep = 200, varstruct = "unstructured", method = "ML")
+  ll<-fit_ML$loglik
+  aic <- -2*ll+2*(str_count(i,coll("+"))+4+6)
+  print(i)
+  if (aic_final>aic){
+    aic_final <- aic
+    model_final <- i
+  }
+}
+aic_final
+model_final
+#553.0101
+# "age_entry+sex_birth+log_sal+cough_count+sys+relevel(as.factor(variant), ref = \"Other\")"
+```
+
+
+Multivariable analysis for coarse aerosol
+```{r}
+est_ci_coarse_multi <- c()
+lm <- lmer (yL_coarse ~ (1|subject_id) + (1|subject_id:sample_date) +age_entry+sex_birth+log_sal+cough_count+sys+relevel(as.factor(variant), ref = "Other"), data=coarse)
+x_matrix <- getME(lm, "X")
+
+#Run the LEMC()
+fit_ML = lmec(yL=yL_coarse, cens=cens_coarse, X=x_matrix, Z=Z_coarse, cluster=cluster_coarse, maxstep = 200, varstruct = "unstructured", method = "ML")
+
+vars <- c("intercept", "age_entry","sex_birth","log_sal", "cough_count","sys","Alpha", "Delta", "Omicron" )
+for (i in c(2:length(vars))){
+                est <- fit_ML$beta[i]
+                se <- sqrt(diag(fit_ML$varFix))[i]
+                up <- est+1.96*se
+                low <- est-1.96*se
+                est_ci <- c(vars[i], est, low, up)
+                est_ci_coarse_multi <- rbind(est_ci_coarse_multi, est_ci)
+}
+colnames(est_ci_coarse_multi) <- c("varname","beta_lmec","ci_low","ci_high")
+est_ci_coarse_multi
+ll<-fit_ML$loglik
+aic <- -2*ll+2*(9+6)
+aic
+#AIC: 553.0101
+```
+
+
+
+```{r}
+exptransform <- function(x) {
+  y2 <- exp(x) %>% signif(2)
+  y3 <- exp(x) %>% signif(3)
+  if(y2==1){y=y3}
+  else(y=y2)
+  return(y)
+}
+
+# fine/coarse unadjusted/unadjusted mean & CIs
+
+meanCIlist <- list(est_ci_fine_list_df,est_ci_fine_multi,est_ci_coarse_list_df,est_ci_coarse_multi)
+names(meanCIlist) <- c("fine_unadj","fine_adj","coarse_unadj","coarse_adj")
+
+meanCIlist <- meanCIlist %>% lapply(as.data.frame,stringsAsFactors=F)
+for (i in names(meanCIlist)) {
+  meanCIlist[[i]]$iqradjust <- meanCIlist[[i]]$varname %>% lapply(function(x) {IQRadjustlist[[x]]}) %>% lapply(function(x) {if (length(x)==0) {1} else {x}}) %>% unlist()
+  meanCIlist[[i]]$beta_1 <- ((meanCIlist[[i]]$beta_lmec %>% as.numeric())*meanCIlist[[i]]$iqradjust) %>% sapply(exptransform)
+  meanCIlist[[i]]$ci_low_1 <- ((meanCIlist[[i]]$ci_low %>% as.numeric())*meanCIlist[[i]]$iqradjust) %>% sapply(exptransform)
+  meanCIlist[[i]]$ci_high_1 <- ((meanCIlist[[i]]$ci_high %>% as.numeric())*meanCIlist[[i]]$iqradjust) %>% sapply(exptransform)
+  meanCIlist[[i]]$predict1 <- meanCIlist[[i]][,c("beta_1","ci_low_1","ci_high_1")] %>% apply(1,function(x) {paste0(x["beta_1"]," (",x["ci_low_1"],", ",x["ci_high_1"],")")})
+}
+
+
+# for unadjusted models, don't need to adjusted entries
+meanCIlist[["fine_unadj"]] <- meanCIlist[["fine_unadj"]] %>% filter(!grepl("adjusted",varname))
+meanCIlist[["coarse_unadj"]] <- meanCIlist[["coarse_unadj"]] %>% filter(!grepl("adjusted",varname))
+
+table4output <- meanCIlist[["coarse_unadj"]] %>% select(varname,predict1) %>% rename(`Coarse Unadjusted`=predict1)
+table4output <- table4output %>% left_join(meanCIlist[["coarse_adj"]] %>% select(varname,predict1),by="varname") %>% rename(`Coarse Adjusted`=predict1)
+table4output <- table4output %>% left_join(meanCIlist[["fine_unadj"]] %>% select(varname,predict1),by="varname") %>% rename(`Fine Unadjusted`=predict1)
+table4output <- table4output %>% left_join(meanCIlist[["fine_adj"]] %>% select(varname,predict1),by="varname") %>% rename(`Fine Adjusted`=predict1)
+table4output[is.na(table4output)] <- "-"
+
+tableorder <- c('Variant','Alpha', 'Delta', 'Omicron','age_entry','sex_birth','days_past_onset', 'log_mt', 'log_sal', 'cough_count', 'ur', 'lr', 'gi', 'sys')
+
+table4output1 <- matrix(tableorder,ncol=1) %>% as.data.frame(stringsAsFactors=F)
+colnames(table4output1) <- "varname"
+table4output1 <- table4output1 %>% left_join(table4output,by="varname")
+
+table4output1
+
+```
+
+```{r}
+table4output1$varname[table4output1$varname=="Alpha"] <- "Alpha vs. Other"
+table4output1$varname[table4output1$varname=="Delta"] <- "Delta vs. Other"
+table4output1$varname[table4output1$varname=="Omicron"] <- "Omicron vs. Other"
+table4output1$varname[table4output1$varname=="age_entry"] <- "age"
+table4output1$varname[table4output1$varname=="sex_birth"] <- "Male vs. Female"
+table4output1$varname[table4output1$varname=="days_past_onset"] <- "Day post-symptom onset"
+table4output1$varname[table4output1$varname=="log_mt"] <- "Log mid-turbinate swab"
+table4output1$varname[table4output1$varname=="log_sal"] <- "Log saliva"
+table4output1$varname[table4output1$varname=="cough_count"] <- "Number of coughs"
+table4output1$varname[table4output1$varname=="ur"] <- "Upper respiratory symptoms"
+table4output1$varname[table4output1$varname=="lr"] <- "Lower respiratory symptoms"
+table4output1$varname[table4output1$varname=="gi"] <- "Gastrointestinal symptoms"
+table4output1$varname[table4output1$varname=="sys"] <- "Systemic symptoms"
+
+write.csv(table4output1,file="../output/si_tab4b_pred_eba_lte_5days.csv",row.names=F)
+```
+

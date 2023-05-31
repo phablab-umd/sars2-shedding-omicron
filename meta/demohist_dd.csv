@@ -1,0 +1,99 @@
+"Variable name","Variable class","Are there NAs in this field?","Possible values or range of values","NA means what","Notes"
+"subject_id","character","FALSE","290 to 584","(none)","(none)"
+"age_entry","numeric","FALSE","6 to 66","(none)","ineligible or people who did not put in a correct date were set to NA"
+"sex_birth","character","FALSE","0 to 1","(none)","0 = female
+1 = male
+8 = uncertain
+9 = decline"
+"alc_week","character","TRUE","0;1;2;3;NA","NA means decline or don’t know","(none)"
+"drinks_p_day","character","TRUE","1;12;2;3;4;5;6;8;NA","NA means decline or don’t know","(none)"
+"singing_lessons","character","FALSE","0 to 1","(none)","Have you ever taken voice or singing lessons?
+0 = No
+1 = Yes
+9 = Decline
+NAs occur for arms where the question was not activated (yet)"
+"singing_ensemble","character","FALSE","0 to 1","(none)","Do you sing (or have you ever sung, for at least a year) in a choir/chorus, quartet, or other ensemble with other singers?
+0 = No
+1 = Yes
+9 = Decline
+NAs occur for arms where the question was not activated (yet)"
+"latino","character","FALSE","0 to 9","(none)","0 = Not Hispanic or Latino
+1 = Hispanic or Latino
+9 = Decline"
+"other_race","character","TRUE","Latina;NA","NAs because most did not indicate “other race”","Participants were set asked to name other race, but most of these are corrected to White"
+"tag","character","FALSE","Case entry;Contact entry;Surveillance entry","(none)","which arm in redcap the record resides in"
+"cri","numeric","FALSE","0 to 1","(none)","1 = participant indicated yes to history of any of asthma, allerg, copd, cf, bronchitis, emphys, lung_other
+0 = No"
+"drinks_p_week","numeric","FALSE","0 to 24","(none)","drinks_p_day times alc_week"
+"race","character","FALSE","Asian Indian;Black or African American;Chinese;Don't Know;Other Asian;White","(none)","(none)"
+"multiracial","character","FALSE","No","(none)","checked off more than one race box"
+"bmi","character","FALSE","17.4 to 37.3","NAs will occur if the participant never visited the clinic (i.e. arm 1)","if out of range, check kg/lb cm/inch conversions"
+"nose_run_ret","numeric","TRUE","0 to 2","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"nose_stuf_ret","numeric","TRUE","0 to 2","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"sneeze_ret","numeric","TRUE","0 to 2","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"throat_sr_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"earache_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"chest_tight_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"sob_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"cough_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"malaise_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"headache_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"mj_ache_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"sw_fever_chill_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"loa_ret","numeric","TRUE","0 to 2","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"vomit_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"diarrhea_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"nausea_ret","numeric","TRUE","0 to 3","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"taste_smell_yn_covid_ret","character","TRUE","0;1;NA","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"sx_med_care_ret","character","TRUE","0;1;NA","NAs will occur if no IR follow-up visit","from Symptom Card Retrospective asked at IR follow-up ONLY"
+"ur_ret","numeric","TRUE","0 to 11","NAs will occur if no IR follow-up visit","sum of c(""nose_run_ret"",""nose_stuf_ret"", ""sneeze_ret"", ""throat_sr_ret"", ""earache_ret"")"
+"lr_ret","numeric","TRUE","0 to 9","NAs will occur if no IR follow-up visit","sum of c(""chest_tight_ret"", ""sob_ret"", ""cough_ret"")"
+"sys_ret","numeric","TRUE","0 to 12","NAs will occur if no IR follow-up visit","sum of c(""malaise_ret"", ""headache_ret"", ""mj_ache_ret"", ""sw_fever_chill_ret"")"
+"gi_ret","numeric","TRUE","0 to 11","NAs will occur if no IR follow-up visit","sum of c(""loa_ret"", ""vomit_ret"", ""diarrhea_ret"", ""nausea_ret"")"
+"real_onset","Date","FALSE","2021-09-13 to 2022-03-08","NAs will occur if the participant never exhibited symptoms of COVID-19","most likely symptom onset date, includes manual corrections"
+"date_of_enrollment","Date","FALSE","2021-09-14 to 2022-03-11","NA will occur if the participant never visited the clinic (i.e. arm 1)","first clinic visit"
+"covid_shot_yn","character","FALSE","1 to 1","(none)","Did this person get a covid shot ever"
+"covid_shot_1_range","character","FALSE","2020-10-01;2020-10-31;2021-01-01;2021-01-31;2021-01-09;2021-01-09;2021-01-27;2021-01-31;2021-02-01;2021-02-28;2021-03-01;2021-03-31;2021-03-17;2021-03-17;2021-03-19;2021-03-19;2021-03-24;2021-03-24;2021-03-28;2021-03-28;2021-03-31;2021-03-31;2021-04-01;2021-04-01;2021-04-01;2021-04-30;2021-04-03;2021-04-03;2021-04-04;2021-04-04;2021-04-06;2021-04-06;2021-04-12;2021-04-12;2021-04-19;2021-04-19;2021-04-22;2021-04-22;2021-04-29;2021-04-29;2021-06-01;2021-06-01;2021-06-14;2021-06-14;2021-07-08;2021-07-08;2021-09-08;2021-09-08;2021-10-01;2021-10-01;2021-11-08;2021-11-08","NA means no covid shot, or no info?","Two dates separated by semicolons
+Some of this information is imprecise because asked before amendment 23"
+"covid_shot_type","character","FALSE","1 to 4","(none)","0 = no shot
+1 = Pfizer
+2 = Moderna
+3 = Johnson & Johnson
+4 = Novavax"
+"covid_second_shot_yn","character","FALSE","1 to 9","(none)","0 = no
+1 = yes
+9 = irrelevant, because the participant got J&J"
+"covid_shot_2_range","character","TRUE","2020-10-01;2021-12-07;2020-11-29;2020-11-29;2021-02-01;2021-12-09;2021-02-08;2021-02-08;2021-02-10;2021-02-24;2021-02-21;2021-02-21;2021-03-29;2021-03-29;2021-04-07;2021-04-07;2021-04-11;2021-04-11;2021-04-15;2021-04-15;2021-04-16;2021-04-16;2021-04-20;2021-04-20;2021-04-22;2021-04-22;2021-04-24;2021-04-24;2021-04-28;2021-04-28;2021-05-03;2021-05-03;2021-05-08;2021-05-08;2021-05-10;2021-05-10;2021-05-14;2021-05-14;2021-05-20;2021-05-20;2021-08-11;2021-08-11;2021-10-01;2021-10-01;2021-10-15;2021-10-15;2021-11-29;2021-11-29;NA","NAs occur for participants who got J&J","Two dates separated by semicolons
+Some of this information is imprecise because asked before amendment 23"
+"booster_yn","character","FALSE","0 to 1","NAs for participants who never told us","(none)"
+"booster_when","character","TRUE","2021-08-23;2021-10-03;2021-10-04;2021-10-08;2021-10-15;2021-10-31;2021-11-06;2021-11-11;2021-11-16;2021-11-24;2021-11-25;2021-12-03;2021-12-07;2021-12-18;2022-01-04;2022-01-06;2022-01-09;2022-01-10;2022-01-11;2022-01-13;2022-01-21;2022-01-23;2022-02-01;NA","NAs for participants who either didn’t get a booster, or never told us","(none)"
+"booster_type","character","TRUE","0;1;2;4;NA","NAs for participants who we don’t know if they got a shot","0 = no shot
+1 = Pfizer
+2 = Moderna
+4 = Novavax"
+"shed_visit_date_range","character","FALSE","2021-09-14;2021-09-16;2021-12-03;2021-12-06;2021-12-14;2021-12-21;2021-12-16;2021-12-17;2021-12-17;2021-12-17;2021-12-20;2021-12-20;2021-12-21;2021-12-21;2021-12-22;2021-12-22;2022-01-04;2022-01-11;2022-01-04;2022-01-18;2022-01-05;2022-01-06;2022-01-11;2022-01-12;2022-01-12;2022-01-13;2022-01-13;2022-01-14;2022-01-14;2022-01-14;2022-01-18;2022-01-18;2022-01-25;2022-01-25;2022-01-27;2022-01-28;2022-01-28;2022-01-28;2022-01-28;2022-01-31;2022-02-01;2022-02-02;2022-02-02;2022-02-02;2022-02-03;2022-02-03;2022-02-07;2022-02-08;2022-02-24;2022-02-25;2022-03-01;2022-03-02;2022-03-02;2022-03-03;2022-03-09;2022-03-09;2022-03-09;2022-03-10;2022-03-10;2022-03-10;2022-03-11;2022-03-11","(none)","Two dates separated by semicolons"
+"covid_shot_1_actual","character","FALSE","1 to 1","(none)","Did the participant have their first covid shot at the time of their shedding visits?"
+"covid_shot_2_actual","character","FALSE","0 to 1","(none)","Did the participant have their second covid shot at the time of their shedding visits?"
+"covid_booster_actual","character","FALSE","0 to 1","(none)","Did the participant have a booster covid shot at the time of their shedding visits?
+8 = no booster information"
+"covid_shot_1_actual_14","character","FALSE","1 to 1","(none)","Did the participant have their first covid shot 14 days or more before their shedding visits?"
+"covid_shot_2_actual_14","character","FALSE","0 to 1","(none)","Did the participant have their second covid shot 14 days or more before their shedding visits?"
+"covid_booster_actual_14","character","FALSE","0 to 1","(none)","Did the participant have a booster covid shot 14 days or more before their shedding visits?
+8 = no booster information"
+"singing_any","logical","FALSE","FALSE;TRUE","(none)","(none)"
+"age_cat","character","FALSE","18 to 45;greater than 45;less than 18","(none)","(none)"
+"booster","character","FALSE","boosted;not boosted","NA means don’t know","comes from covid_booster_actual"
+"fever_ever","logical","FALSE","FALSE;TRUE","NA will occur if the participant never reported a temperature (i.e. no clinic visits, or simply declined to answer that part of the daily symptom survey)","temp &ge; 37.8 ever reported"
+"covid_prev_how_many","character","TRUE","0;1;2;NA","NA means this question was implemented before amendment 28 and participant did not respond to email/text asking","0 = no previous infections prior to this baseline date"
+"covid_prev_1_date","character","TRUE","2020-08-01;2020-09-01;2020-12-01;2021-08-01;NA","NA if covid_prev_how_many=0 or is.na","rough date of previous infection, if month only then date is set for the first"
+"covid_prev_2_date","character","TRUE","2022-01-01;NA","NA if covid_prev_how_many=0 or 1 or is.na","rough date of previous infection, if month only then date is set for the first"
+"sero_collection_date_1","Date","FALSE","2021-09-14 to 2022-03-11","NA will occur if no sera ever, or not analyzed","date of acute blood"
+"anti_rbd_igg_titer_1","integer","FALSE","8 to 4096","NA will occur if no sera ever, or not analyzed","everyone had rbd detection"
+"anti_nuc_igg_titer_1","numeric","FALSE","-1 to 256","NA will occur if no sera ever, or not analyzed","-1 means nondetect"
+"sero_collection_date_2","Date","TRUE","2021-10-15 to 2022-03-16","NA if person hasn’t done second (IRFU) visit, or blood from that visit not yet analyzed",""
+"anti_rbd_igg_titer_2","integer","TRUE","128 to 8192","NA will occur if no sera ever, or no IR follow-up, or not analyzed","everyone had rbd detection"
+"anti_nuc_igg_titer_2","numeric","TRUE","-1 to 128","NA will occur if no sera ever, or no IR follow-up, or not analyzed","-1 means nondetect"
+"sero_daydiff","numeric","TRUE","31 to 69","NA will occur if no sera ever, or no IR follow-up, or not analyzed","number of days between first and second blood draw"
+"date_detect","Date","FALSE","2021-09-14 to 2022-03-11","(none)","first pcr screen detection - used to presume variant type"
+"seq_variant","character","FALSE","Delta;Omicron BA.1;Omicron BA.1.1;Omicron BA.2","(none)","(none)"
+"presumed_seq","logical","FALSE","FALSE;TRUE","(none)","some of this was guesswork based on date of detection and whether S-gene was detected"

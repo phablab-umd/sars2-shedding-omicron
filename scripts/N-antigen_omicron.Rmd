@@ -1,0 +1,157 @@
+---
+title: "summary_for_nucleocapsid_positive"
+author: "Jianyu"
+date: "4/21/2022"
+output:
+  pdf_document: default
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(table1)
+library(rvest)
+library(ggpubr)
+library(grid)
+library(gridExtra)
+set.seed(42)
+```
+
+```{r}
+spr <- read.csv(file = "../working_files/nonpaired_pcr_sx_spr.csv")
+demo <- readRDS(file = "../working_files/nonpaired_demohist.RDS")
+
+spr_nuc_pos <- spr %>% filter(!(anti_nuc_igg_titer_1 == -1))
+demo_nuc_pos <- demo %>% filter(!(anti_nuc_igg_titer_1 == -1))
+```
+
+#Q1. Did this group of people shed virus in aerosols?
+```{r}
+breath_samples <- c("G-II Coarse Aerosol","G-II Coarse Aerosol mask","G-II Fine Aerosol","G-II Fine Aerosol mask")
+spr_breath <- spr_nuc_pos %>% filter(sample_type %in% breath_samples)
+range(spr_breath$av_quant)
+
+#conclusion: they didn't shed virus in aerosols.
+```
+
+#Q2. Did they report prior infections?  - Need to check the records manually or wait for their response in emails. 
+
+#Q3. How many days since their symptom onset when they did the visit?
+```{r}
+spr_breath %>% filter(sample_type == "G-II Fine Aerosol mask") %>% group_by(subject_id) %>% summarise(min(days_past_onset),
+                                                                                                      max(days_past_onset))
+```
+
+#Q4. What vaccine type they received? And how many days since their last shot?
+```{r}
+spr_nuc_pos[c('shot2_when1', 'shot2_when')] <- str_split_fixed(spr_nuc_pos$covid_shot_2_range, ';', 2)
+spr_nuc_pos[c('shot1_when1', 'shot1_when')] <- str_split_fixed(spr_nuc_pos$covid_shot_1_range, ';', 2)
+demo_nuc_pos[c('shot2_when1', 'shot2_when')] <- str_split_fixed(demo_nuc_pos$covid_shot_2_range, ';', 2)
+demo_nuc_pos[c('shot1_when1', 'shot1_when')] <- str_split_fixed(demo_nuc_pos$covid_shot_1_range, ';', 2)
+
+spr_nuc_pos <- spr_nuc_pos %>% 
+  mutate(date_last_vax = if_else(booster == "boosted", booster_when, if_else(covid_shot_type %in% c("1", "2"), shot2_when1, shot1_when1))) %>% 
+  mutate(days_since_vax = as.Date(sample_date) - as.Date(date_last_vax))
+range(spr_nuc_pos$days_since_vax)
+
+demo_nuc_pos <- demo_nuc_pos %>% 
+  mutate(date_last_vax = if_else(booster == "boosted", booster_when, if_else(covid_shot_type %in% c("1", "2"), shot2_when1, shot1_when1)))
+
+#summary of the booster status (not boosted vs. boosted), vaccine type, booster type, and when they received each of the shots
+#type 1: Pfizer, 2. Moderna, C. J&J
+demo_nuc_pos %>% select(subject_id, date_of_enrollment, booster, covid_shot_type, booster_type, booster_when, shot1_when1, shot2_when1, date_last_vax)
+
+#time since their last shot when they did the visits
+spr_nuc_pos %>%  group_by(subject_id) %>% summarise(min(days_since_vax), max(days_since_vax))
+```
+
+#Q5. What variants they had?
+```{r}
+table(demo_nuc_pos$seq_variant)
+```
+
+#Q6. Make a summary table for these cases. 
+a summary table of the 5 anti-N IgG positive participants and their PCR and culture results for all sample types
+Also in the table should be a column for booster and previous infections reported. 
+```{r}
+spr_nuc_pos$prior_infection[spr_nuc_pos$subject_id == "570"] <- "twice"
+spr_nuc_pos$prior_infection[spr_nuc_pos$subject_id == "536"] <- "once"
+spr_nuc_pos$prior_infection[spr_nuc_pos$subject_id == "583"] <- "never before"
+spr_nuc_pos$prior_infection[spr_nuc_pos$subject_id == "571"] <- "never before"
+spr_nuc_pos$prior_infection[spr_nuc_pos$subject_id == "551"] <- "not report"
+summary <- spr_nuc_pos %>% select(subject_id, sample_date, seq_variant, sample_type, sample_quant, culture_status, booster, prior_infection, days_past_onset)
+summary <- summary[order(summary$subject_id, summary$sample_date, summary$sample_type),]
+samples <- c("G-II Coarse Aerosol", "G-II Fine Aerosol", "Midturbinate Swab", "Phone Swab", "Saliva")
+summary2 <- summary %>% filter(sample_type %in% samples) %>% filter(!(culture_status=="not cultured"))
+
+summary <- setNames(summary, c("Subject ID", "Sample Date", "Variant", "Sample Type", "qPCR", "Culture Status", "Booster Status", "Prior Infection", "Days post symptom onset"))
+#write.csv(summary,file="../output/summary_5_cases.csv",row.names=F)
+
+
+summary2 <- setNames(summary2, c("Subject ID", "Sample Date", "Variant", "Sample Type", "qPCR", "Culture Status", "Booster Status", "Prior Infection", "Days post symptom onset"))
+#write.csv(summary2,file="../output/summary_5_cases_2.csv",row.names=F)
+```
+
+#Q7: Did these 5 participants have relatively lower viral loads in MTS than the rest of the study participants? 
+```{r}
+spr_omicon <- spr %>% filter(!(seq_variant == "Delta"))
+
+stat_box_data <- function(y, upper_limit = 9.085) {
+  data.frame(
+    y = -0.02 * upper_limit,
+    label = paste0('n=', length(y), '\n')
+  )
+}
+
+anti_N_plot <- function(sample_name, yaxis, letter) {
+  spr_sample <- spr_omicon %>% filter(sample_type == sample_name) %>% 
+    mutate(nuc = as.factor(ifelse(anti_nuc_igg_titer_1=="-1", "Negative", "Positive")),
+           log_quant = ifelse(sample_quant ==0, 0, log10(sample_quant)))
+  
+  anti_N_compare <- spr_sample %>% 
+    ggplot(aes(x=nuc, y = log_quant))+
+    geom_boxplot(aes(color = nuc),show.legend = FALSE)+
+    geom_point(aes(color = nuc),show.legend = FALSE)+
+    labs(x= "Anti-nucleocapsid IgG", 
+         y= yaxis)+
+    stat_compare_means(size = 4)+
+    stat_summary(
+      fun.data = stat_box_data, 
+      geom = "text", 
+      hjust = 0.5,
+      vjust = 0.9,
+      size=6,
+      position = position_dodge(0.9)
+    ) +
+    theme_bw()+
+    ggtitle(letter)+
+    theme(axis.title=element_text(size=15, face='bold'),
+          axis.text = element_text(size = 15),
+          plot.title=element_text(size=20, face="bold"))
+ return(anti_N_compare)
+}
+
+
+```
+
+```{r}
+blank <- grid.rect(gp=gpar(col="white"))
+figure_e_5 <- grid.arrange(
+  anti_N_plot("Midturbinate Swab", "MTS(log10)", "a"), 
+  anti_N_plot("Saliva", "Saliva(log10)", "b"), 
+  anti_N_plot("Phone Swab", "Fomite(log10)", "c"), 
+  blank,
+  anti_N_plot("G-II Fine Aerosol", "Fine EBA(log10)","d"), 
+  anti_N_plot("G-II Coarse Aerosol", "Coarse EBA(log10)","e"), 
+  layout_matrix = rbind(c(1,1,2,2,3,3),
+                        c(4,4,4,4,4,4),
+                        c(5,5,5,6,6,6)),
+  heights = c(5,1,5)
+)
+
+figure_e_5
+ggsave(figure_e_5,filename="../output/si_fig6_N-antigen_omicron.png",device="png",width=11,height=7.77,units="in")
+```
+

@@ -1,0 +1,496 @@
+---
+title: "change_of_symptom_over_time"
+author: "Jianyu"
+date: '2022-06-02'
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggpubr)
+library(grid)
+library(gridExtra)
+set.seed(42)
+```
+
+Difference from the aerosol_mts_plot.Rmd:
+limit to those with some detection in aerosol samples and lump the two Omicrons together
+```{r include=FALSE}
+# Theme for display parameters
+
+scale_color_variant <- scale_color_manual(values = c("A/O"= "#984ea3",
+                                                     "Alpha"="#386cb0",
+                                                     "Delta"="#7fc97f",
+                                                     "Omicron" = "#ef3b2c"))
+scale_shape_variant <- scale_shape_manual(values = c("A/O" = 15,
+                                                     "Alpha"=16,
+                                                     "Delta"=17,
+                                                     "Omicron" = 18))
+
+scale_color_variant3 <- scale_color_manual(values = c("A/O" = "#984ea3",
+                                                     "Alpha"="#386cb0",
+                                                     "Delta"="#7fc97f",
+                                                     "BA.1" = "#a6cee3",
+                                                     "BA.2" = "#662506"))
+scale_shape_variant3 <- scale_shape_manual(values = c("A/O" = 15,
+                                                     "Alpha"=16,
+                                                     "Delta"=17,
+                                                     "BA.1" = 18,
+                                                     "BA.2" = 19))
+
+```
+
+```{r}
+spr_before_raw <- read.csv(file = "../working_files/manuscript_1_all_61_nonpaired_pcr_sx_spr.csv")
+
+spr_raw <- read.csv(file = "../working_files/nonpaired_pcr_sx_spr.csv")
+
+spr <- spr_raw %>% mutate(variant2 = if_else(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1", "Omicron BA.2"), "Omicron", seq_variant))
+spr <- spr %>% mutate(variant3 = ifelse(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1"), "BA.1", ifelse(seq_variant=="Omicron BA.2", "BA.2", seq_variant)))
+
+spr_before <- spr_before_raw %>%
+  mutate(subject_id = as.factor(study_id),
+         days_past_onset = as.factor(days_past_onset),
+         variant2 = if_else(S.gene.dropout == "TRUE", "Alpha", "A/O")) %>% 
+  mutate(seq_variant = variant2,
+         variant3 = variant2) 
+length(unique(spr_before$subject_id))
+
+
+before_sub <- spr_before %>% 
+  select(subject_id, sample_date, days_past_onset, variant2, variant3, seq_variant, nose_run,nose_stuf,sneeze,throat_sr,earache,malaise,headache,mj_ache,sw_fever_chill,nausea,loa,vomit,diarrhea,chest_tight,sob,cough,ur,lr,gi,sys) %>%
+  unique()
+
+spr <- spr %>%
+  mutate(subject_id = as.factor(subject_id),
+         days_past_onset = as.factor(days_past_onset))
+
+now_sub <- spr %>% 
+  select(subject_id, sample_date, days_past_onset, variant2, variant3, seq_variant, nose_run,nose_stuf,sneeze,throat_sr,earache,malaise,headache,mj_ache,sw_fever_chill,nausea,loa,vomit,diarrhea,chest_tight,sob,cough,ur,lr,gi,sys) %>% 
+  unique()
+
+symptom_total <- bind_rows(now_sub,before_sub)
+
+symptom_total <- symptom_total %>% 
+  mutate(variant2 = factor(variant2, 
+                          levels = c("A/O", "Alpha", "Delta", "Omicron"),
+                          labels = c("A/O", "Alpha", "Delta", "Omicron"))) %>% 
+  mutate(variant3 = factor(variant3, 
+                          levels = c("A/O", "Alpha", "Delta", "BA.1","BA.2"),
+                          labels = c("A/O", "Alpha", "Delta",  "BA.1","BA.2")))
+
+symptom_total <- symptom_total %>% mutate(omicron = if_else(variant2 == "Omicron", "Yes", "No"))
+```
+individual symptom by variants over time with significant comparison
+```{r}
+stat_box_data <- function(y, upper_limit = 9.085) {
+  data.frame(
+    y = -0.02 * upper_limit,
+    label = paste0('n=', length(y), '\n')
+  )
+}
+
+symptom_total <- symptom_total %>% mutate(sample_date2 = as.Date(sample_date, origin="1970-01-01"))
+variables <- colnames(symptom_total[,7:26])
+variables_names <- c("Running nose", "Stuffy Nose", "Sneeze", "Sore throat", "Earache", "Malaise", "Headache", "Muscle ache", "Sweat/fever/chill","Nausea", "Loss of appetite", "Vomit", "Diarrhea", "Chest tightness", "Short of breath", "Cough", "Upper-respiratory", "Lower-respiratory", "Gastrointestinal", "Systemic")
+
+
+compare <- list(c("A/O","Alpha"),c("Alpha","Delta"), c("Delta","BA.1"),c("BA.1","BA.2"),
+               c("A/O","Delta"),c("Delta","BA.2"), 
+               c("Alpha","BA.1"),
+               c("A/O","BA.1"),
+               c("Alpha","BA.2"),
+               c("A/O","BA.2"))
+
+label_compare = c(3,3,3,3,
+                  3.5,3.5,
+                  4,
+                  4.5,
+                  5,
+                  5.5)
+
+#The comparisons need to be defined individually and change everytime we run the code for new dataset
+#This will be defined based on the results from line 198-219
+compare_1 <- list(c("A/O","BA.1"), c("A/O","BA.2"))
+label_compare_1 = c(3.5,4.5)
+
+compare_2 <- list(c("Delta","BA.2"), c("A/O","BA.2"))
+label_compare_2 = c(3.5,4.5)
+
+compare_3 <- list(c("A/O","BA.1"), c("A/O","BA.2"))
+label_compare_3 = c(3.5,4.5)
+
+compare_4 <- list(c("A/O","BA.1"), c("Delta","BA.1"))
+label_compare_4 = c(3.5,4.5)
+
+compare_5 <- list(c("A/O","Alpha"))
+label_compare_5 = c(3.5)
+
+compare_6 <- list(c("A/O","Alpha"), c("A/O","BA.2"))
+label_compare_6 = c(3.5,4.5)
+
+compare_7 <- list(c("Delta","Alpha"), c("Delta","BA.1"))
+label_compare_7 = c(3.5,4.5)
+
+compare_8 <- list(c("A/O","Alpha"), c("A/O","BA.1"))
+label_compare_8 = c(3.5,4.5)
+
+compare_9 <- list(c("A/O","Alpha"), c("A/O","BA.1"),c("A/O","BA.2"))
+label_compare_9 = c(3.5,4.5,5.5)
+
+compare_10 <- list(c("A/O","Alpha"), c("A/O","BA.2"))
+label_compare_10 = c(3.5,4.5)
+
+compare_11 <- list(c("A/O","Alpha"),c("Alpha","Delta"), c("Delta","BA.1"),
+                   c("Delta","BA.2"),c("A/O","BA.1"),
+                   c("A/O","BA.2"))
+label_compare_11 = c(3.5,3.5,3.5,
+                     4.5,
+                     5.5,
+                     6.5)
+compare_12 <- list()
+label_compare_12 = c()
+
+compare_13 <- list(c("A/O","Alpha"), c("A/O","BA.1"))
+label_compare_13 = c(3.5,4.5)
+
+compare_14 <- list()
+label_compare_14 = c()
+
+compare_15 <- list(c("A/O","BA.1"))
+label_compare_15 = c(3.5)
+
+compare_16 <- list(c("A/O","BA.1"), c("A/O","BA.2"))
+label_compare_16 = c(3.5,4.5)
+
+symptom_by_variant_by_day3 <- function(virus, symptom, symptom_name, comparison, label_comparison){
+  plot <- symptom_total %>% 
+  ggplot(aes(x = eval(parse(text=virus)), y = eval(parse(text=symptom))))+
+  geom_boxplot(aes(color=eval(parse(text=virus))),show.legend = FALSE)+
+  stat_summary(
+    fun.data = stat_box_data, 
+    geom = "text", 
+    hjust = 0.5,
+    vjust = 0.9,
+    size=3,
+    position = position_dodge(0.9)
+  ) + 
+  stat_compare_means(comparisons = comparison,size=3, label ="p.signif", label.y = label_comparison)+
+  stat_compare_means(label.y=7.5, label.x = "Alpha", size=3)+
+  coord_cartesian(ylim = c(-1, 8), expand = TRUE)+
+  scale_y_continuous(breaks=c( 0,1,2,3))+
+  theme_bw()+
+  scale_shape_variant3+
+  scale_color_variant3+
+    labs(x= " ", 
+       y=symptom_name,
+       color = "Variant",
+       shape = "Variant")+
+  theme(axis.text.x=element_text(size = 10, face='bold', angle = 0),
+        axis.text.y=element_text(size = 12, face='bold'),
+        axis.title.y=element_text(size=12, face='bold'),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16, face='bold'))
+  return(plot)
+}
+```
+
+```{r eval=FALSE, include=FALSE}
+#display all the pairwise comparison to find out which to display in the final plot
+all_individual_symptom<- ggarrange(
+  symptom_by_variant_by_day3("variant3", variables[1], variables_names[1], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[2], variables_names[2], compare, label_compare),
+  symptom_by_variant_by_day3("variant3", variables[3], variables_names[3], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[4], variables_names[4], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[5], variables_names[5], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[6], variables_names[6], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[7], variables_names[7], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[8], variables_names[8], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[9], variables_names[9], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[10], variables_names[10], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[11], variables_names[11], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[12], variables_names[12], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[13], variables_names[13], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[14], variables_names[14], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[15], variables_names[15], compare, label_compare), 
+  symptom_by_variant_by_day3("variant3", variables[16], variables_names[16], compare, label_compare), 
+                      ncol=4, nrow=4)
+all_individual_symptom
+```
+
+```{r}
+individual_symptom<- ggarrange(
+  symptom_by_variant_by_day3("variant3", variables[1], variables_names[1], compare_1, label_compare_1), 
+  symptom_by_variant_by_day3("variant3", variables[2], variables_names[2], compare_2, label_compare_2),
+  symptom_by_variant_by_day3("variant3", variables[3], variables_names[3], compare_3, label_compare_3), 
+  symptom_by_variant_by_day3("variant3", variables[4], variables_names[4], compare_4, label_compare_4), 
+  symptom_by_variant_by_day3("variant3", variables[5], variables_names[5], compare_5, label_compare_5), 
+  symptom_by_variant_by_day3("variant3", variables[6], variables_names[6], compare_6, label_compare_6), 
+  symptom_by_variant_by_day3("variant3", variables[7], variables_names[7], compare_7, label_compare_7), 
+  symptom_by_variant_by_day3("variant3", variables[8], variables_names[8], compare_8, label_compare_8), 
+  symptom_by_variant_by_day3("variant3", variables[9], variables_names[9], compare_9, label_compare_9), 
+  symptom_by_variant_by_day3("variant3", variables[10], variables_names[10], compare_10, label_compare_10), 
+  symptom_by_variant_by_day3("variant3", variables[11], variables_names[11], compare_11, label_compare_11), 
+  symptom_by_variant_by_day3("variant3", variables[12], variables_names[12], compare_12, label_compare_12), 
+  symptom_by_variant_by_day3("variant3", variables[13], variables_names[13], compare_13, label_compare_13), 
+  symptom_by_variant_by_day3("variant3", variables[14], variables_names[14], compare_14, label_compare_14), 
+  symptom_by_variant_by_day3("variant3", variables[15], variables_names[15], compare_15, label_compare_15), 
+  symptom_by_variant_by_day3("variant3", variables[16], variables_names[16], compare_16, label_compare_16), 
+                      ncol=4, nrow=4)
+
+ggsave(individual_symptom,filename="../output/si_fig9a_box_sx_all.png",device="png",width=11,height=7.77,units="in")
+
+```
+
+#symptom scores by variants over time with significant comparison
+```{r}
+compare_17 <- list(c("A/O","BA.1"), c("A/O","BA.2"))
+label_compare_17 = c(15.5, 17)
+
+compare_18 <- list(c("A/O","BA.1"), c("A/O","BA.2"))
+label_compare_18 = c(15, 16.5)
+
+compare_19 <- list(c("A/O","Alpha"),c("Alpha","Delta"), c("Delta","BA.1"),
+                   c("Delta","BA.2"),c("A/O","BA.1"),
+                   c("A/O","BA.2"))
+label_compare_19 = c(14.5,14.5,14.5,
+                     15.7,
+                     17,
+                     18.2)
+
+compare_20 <- list(c("A/O","Alpha"),c("A/O","BA.1"), c("Delta","BA.1"))
+label_compare_20 = c(15,16.5)
+
+symptom_by_variant_by_day4 <- function(virus, symptom, symptom_name, comparison, label_comparison, note_text){
+  plot <- symptom_total %>% 
+  ggplot(aes(x = eval(parse(text=virus)), y = eval(parse(text=symptom))))+
+  geom_boxplot(aes(color=eval(parse(text=virus))),show.legend = TRUE)+
+  scale_y_continuous(breaks=c( 0,5,10,15))+
+  coord_cartesian(ylim = c(-1, 20), expand = TRUE)+
+  stat_summary(
+    fun.data = stat_box_data, 
+    geom = "text", 
+    hjust = 0.5,
+    vjust = 0.9,
+    size=3,
+    position = position_dodge(0.9)
+  ) +
+  stat_compare_means(label.y=19.8, label.x = "Alpha", size=3)+
+  stat_compare_means(comparisons = comparison,size=3, label ="p.signif", label.y = label_comparison)+
+  ggtitle(note_text)+
+  theme_bw()+
+  scale_shape_variant3+
+  scale_color_variant3+
+    labs(x= " ", 
+       y=symptom_name,
+       color = "Variant",
+       shape = "Variant")+
+  theme(axis.text.x=element_text(size = 10, face='bold', angle = 0),
+        axis.text.y=element_text(size = 12, face='bold'),
+        axis.title.y=element_text(size=12, face='bold'),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16, face='bold'),
+        plot.title = element_text(size = 20, face = "bold"))+
+   guides(shape = guide_legend(override.aes = list(size = 5)))+
+  theme(legend.position="bottom")
+  return(plot)
+}
+
+```
+
+```{r eval=FALSE, include=FALSE}
+#display all the pairwise comparison to find out which to display in the final plot
+all_figure4 <- ggarrange(
+  symptom_by_variant_by_day4("variant3", variables[17], variables_names[17], compare, label_compare,"a"), 
+  symptom_by_variant_by_day4("variant3", variables[18], variables_names[18], compare, label_compare,"b"), 
+  symptom_by_variant_by_day4("variant3", variables[19], variables_names[19], compare, label_compare,"c"), 
+  symptom_by_variant_by_day4("variant3", variables[20], variables_names[20], compare, label_compare,"d"), 
+  nrow=2, ncol=2,
+  legend = "none")
+all_figure4
+```
+
+```{r eval=FALSE, include=FALSE}
+figure4 <- ggarrange(
+  symptom_by_variant_by_day4("variant3", variables[17], variables_names[17], compare_17, label_compare_17,"a"), 
+  symptom_by_variant_by_day4("variant3", variables[18], variables_names[18], compare_18, label_compare_18,"b"), 
+  symptom_by_variant_by_day4("variant3", variables[19], variables_names[19], compare_19, label_compare_19,"c"), 
+  symptom_by_variant_by_day4("variant3", variables[20], variables_names[20], compare_20, label_compare_20,"d"), 
+  nrow=2, ncol=2,
+  legend = "none")
+figure4
+```
+
+##for cough data
+```{r}
+spr <- spr_raw %>% mutate(variant2 = if_else(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1", "Omicron BA.2"), "Omicron", seq_variant))
+spr <- spr %>% mutate(variant3 = ifelse(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1"), "BA.1", ifelse(seq_variant=="Omicron BA.2", "BA.2", seq_variant)))
+
+spr_before <- spr_before_raw %>%
+  filter(sample_type %in% c("G-II Fine Aerosol")) %>% 
+  mutate(subject_id = as.factor(study_id),
+         days_past_onset = as.factor(days_past_onset),
+         variant2 = if_else(S.gene.dropout == "TRUE", "Alpha", "A/O")) %>% 
+  mutate(seq_variant = variant2,
+         variant3 = variant2)
+length(unique(spr_before$subject_id))
+
+before_sub <- spr_before %>% 
+  select(subject_id, sample_date, sample_type, days_past_onset, variant2, variant3, seq_variant, cough_count)
+
+spr <- spr %>%
+  filter(sample_type %in% c("G-II Fine Aerosol")) %>% 
+  mutate(subject_id = as.factor(subject_id),
+         days_past_onset = as.factor(days_past_onset))
+
+now_sub <- spr %>% 
+  select(subject_id, sample_date, sample_type, days_past_onset, variant2, variant3, seq_variant, cough_count) 
+
+breath_total <- bind_rows(now_sub,before_sub)
+
+breath_total <- breath_total %>% 
+  mutate(variant2 = factor(variant2, 
+                          levels = c("A/O", "Alpha", "Delta", "Omicron"),
+                          labels = c("A/O", "Alpha", "Delta", "Omicron"))) %>% 
+  mutate(variant3 = factor(variant3, 
+                          levels = c("A/O", "Alpha", "Delta", "BA.1","BA.2"),
+                          labels = c("A/O", "Alpha", "Delta",  "BA.1","BA.2")))
+
+breath_total <- breath_total %>% mutate(omicron = if_else(variant2 == "Omicron", "Yes", "No"))
+```
+
+#create the cough count during sample collection by variant over time
+```{r}
+breath_total <- breath_total %>% mutate(sample_date2 = as.Date(sample_date, origin="1970-01-01"))
+
+cough_by_variant_by_day1 <- breath_total %>% 
+  ggplot(aes(x = sample_date2, y = cough_count))+
+  geom_point(aes(color=variant2, shape = variant2))+
+  scale_y_continuous(breaks=c( 0,10,20,30,40,50,60,70))+
+  coord_cartesian(ylim = c(-5, 90), expand = TRUE)+
+  theme_bw()+
+  scale_shape_variant+
+  scale_color_variant+
+  scale_x_date(date_labels = "%b %Y", breaks = "4 month")+
+  labs(x= " ", 
+       y="Number of coughs",
+       color = "Variant",
+       shape = "Variant")+
+  ggtitle("a")+
+  theme(axis.text.x=element_text(size = 10, face='bold', angle = 0),
+        axis.text.y=element_text(size = 10),
+        axis.title.y=element_text(size=12, face='bold'),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16, face='bold'),
+        plot.title=element_text(size=20, face="bold"))+
+   guides(shape = guide_legend(override.aes = list(size = 5)))+
+  theme(legend.position="bottom")
+cough_by_variant_by_day1
+```
+
+#create the pairwise comparisons for figure 2
+```{r}
+compare_all <- list(c("A/O", "Alpha"), c("Delta", "Omicron"), c("Alpha","Delta"), c("Omicron", "Alpha"), c("Delta", "A/O"), c("Omicron", "A/O"))
+label_compare_all <- c(40, 50, 58,67,74,80)
+
+compare<- list(c("Alpha","Delta"), c("Omicron", "Alpha"), c("Delta", "A/O"), c("Omicron", "A/O"))
+label_compare = c(58,67,74,80)
+```
+
+```{r eval=FALSE, include=FALSE}
+#display all the pairwise comparison to find out which to display in the final plot
+all_cough_by_variant_by_day2 <- breath_total%>% 
+  ggplot(aes(x = variant2, y = cough_count))+
+  geom_boxplot(aes(color = variant2),show.legend = FALSE)+
+  labs(x= " ", 
+       y=" ")+
+  stat_summary(
+    fun.data = stat_box_data, 
+    geom = "text", 
+    hjust = 0.5,
+    vjust = 0.9,
+    size=3,
+    position = position_dodge(0.9)
+  ) + 
+  scale_y_continuous(breaks=c( 0,10,20,30,40,50,60,70))+
+  coord_cartesian(ylim = c(-5, 90), expand = TRUE)+
+  stat_compare_means(comparisons = compare_all,size=3, label ="p.signif", label.y = label_compare_all)+
+  stat_compare_means(label.y=89, label.x = "A/O", size=3)+
+  theme_bw()+
+  scale_shape_variant+
+  scale_color_variant+
+  ggtitle("b")+
+  theme(axis.text.x=element_text(size = 10, face='bold', angle = 00),
+        axis.text.y=element_text(size = 10),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16, face='bold'),
+        plot.title=element_text(size=20, face="bold"))
+
+all_cough_by_variant_by_day2
+```
+
+```{r}
+cough_by_variant_by_day2 <- breath_total%>% 
+  ggplot(aes(x = variant2, y = cough_count))+
+  geom_boxplot(aes(color = variant2),show.legend = FALSE)+
+  labs(x= " ", 
+       y=" ")+
+  stat_summary(
+    fun.data = stat_box_data, 
+    geom = "text", 
+    hjust = 0.5,
+    vjust = 0.9,
+    size=3,
+    position = position_dodge(0.9)
+  ) + 
+  scale_y_continuous(breaks=c( 0,10,20,30,40,50,60,70))+
+  coord_cartesian(ylim = c(-5, 90), expand = TRUE)+
+  stat_compare_means(comparisons = compare,size=3, label ="p.signif", label.y = label_compare)+
+  stat_compare_means(label.y=89, label.x = "A/O", size=3)+
+  theme_bw()+
+  scale_shape_variant+
+  scale_color_variant+
+  ggtitle("b")+
+  theme(axis.text.x=element_text(size = 10, face='bold', angle = 00),
+        axis.text.y=element_text(size = 10),
+        legend.text = element_text(size = 16),
+        legend.title = element_text(size = 16, face='bold'),
+        plot.title=element_text(size=20, face="bold"))
+
+cough_by_variant_by_day2
+```
+
+combine the plots
+```{r}
+
+cough<- ggarrange(cough_by_variant_by_day1, cough_by_variant_by_day2,
+                  ncol = 2, nrow=1,
+                  widths = c(2,1),
+                  common.legend = T,
+                  legend = "bottom",
+                  align = "h")
+cough
+
+symptom <- ggarrange(symptom_by_variant_by_day4("variant3", variables[17], variables_names[17], compare_17, label_compare_17,"c"),
+                      symptom_by_variant_by_day4("variant3", variables[18], variables_names[18], compare_18, label_compare_18,"d"),
+                      symptom_by_variant_by_day4("variant3", variables[19], variables_names[19], compare_19, label_compare_19,"e"),
+                      symptom_by_variant_by_day4("variant3", variables[20], variables_names[20], compare_20, label_compare_20,"f"),
+
+                      font.label = list(size = 20, face = "bold"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "none",
+                      align = "h")
+```
+
+
+```{r}
+blank <- grid.rect(gp=gpar(col="white"))
+total <- grid.arrange(cough, blank, symptom,
+                      ncol=1, nrow=3,
+                      heights = c(6,1,9))
+total
+ggsave(total,filename="../output/si_fig8a_box_comp_sx.png",device="png",dpi=300, width=10,height=11,units="in")
+# ggsave(total,filename="../output/tiff/extend_figure_8a_cough_symptom_score_change.tiff",device="tiff",dpi=600, width=10,height=11,units="in",compression="lzw")
+# used to be in main manuscript, but got moved to SI
+```

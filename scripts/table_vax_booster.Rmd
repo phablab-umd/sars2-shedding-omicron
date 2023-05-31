@@ -1,0 +1,33 @@
+---
+title: "table_s1"
+author: "Jianyu"
+date: "2/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(table1)
+library(rvest)
+```
+
+```{r}
+spr <- read.csv(file = "../working_files/nonpaired_pcr_sx_spr.csv")
+demo <- readRDS(file = "../working_files/nonpaired_demohist.RDS")
+list<- demo$subject_id
+```
+
+Vaccine status
+```{r}
+demo <- demo %>% mutate(covid_shot_type=factor(covid_shot_type,
+                                           levels = c("1", "2", "3", "4"),
+                                           labels = c("BNT162b2", "mRNA-1273", "Ad26.COV2.S", "NVX-CoV2373")),
+                        booster_type=factor(booster_type,
+                                           levels = c("1", "2", "4", "0"),
+                                           labels = c("BNT162b2", "mRNA-1273", "NVX-CoV2373", "Not boosted")))
+demo$booster_type[is.na(demo$booster_type) | demo$covid_booster_actual == "0"] <- "Not boosted"
+
+vax_booster_table <- table(demo$covid_shot_type, demo$booster_type)
+write.csv(vax_booster_table,file="../output/si_tab1_vax_booster.csv")
+```

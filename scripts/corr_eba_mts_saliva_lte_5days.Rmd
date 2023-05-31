@@ -1,0 +1,602 @@
+---
+title: "aerosol_mts_plot"
+author: "Jianyu"
+date: "9/21/2022"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gridExtra)
+library(tidyverse)
+library(grid)
+library(ggpubr)
+library(lattice)
+set.seed(42)
+```
+
+Difference from the aerosol_mts_plot.Rmd:
+limit to those with some detection in aerosol samples and lump the two Omicrons together
+```{r include=FALSE}
+# Theme for display parameters
+
+scale_color_variant <- scale_color_manual(values = c("Ancestral/other" = "#984ea3",
+                                                     "Alpha"="#386cb0",
+                                                     "Delta"="#7fc97f",
+                                                     "Omicron" = "#ef3b2c"))
+scale_shape_variant <- scale_shape_manual(values = c("Ancestral/other" = 15,
+                                                     "Alpha"=16,
+                                                     "Delta"=17,
+                                                     "Omicron" = 18))
+
+scale_color_variant3 <- scale_color_manual(values = c("Ancestral/other" = "#984ea3",
+                                                     "Alpha"="#386cb0",
+                                                     "Delta"="#7fc97f",
+                                                     "Omicron BA.1" = "#a6cee3",
+                                                     "Omicron BA.2" = "#662506"))
+scale_shape_variant3 <- scale_shape_manual(values = c("Ancestral/other" = 15,
+                                                     "Alpha"=16,
+                                                     "Delta"=17,
+                                                     "Omicron BA.1" = 18,
+                                                     "Omicron BA.2" = 19))
+my_comparison <- list(c("Omicron", "Delta"), c("Omicron", "Alpha"), c("Omicron", "Ancestral/other"),
+                   c("Delta", "Alpha"), c("Delta", "Ancestral/other"), c("Alpha", "Ancestral/other"))
+```
+
+```{r}
+spr_before_raw <- read.csv(file = "../working_files/manuscript_1_all_61_nonpaired_pcr_sx_spr.csv")
+spr_before_raw <- spr_before_raw %>% filter(days_past_onset<6|is.na(days_past_onset))
+
+spr_raw <- read.csv(file = "../working_files/nonpaired_pcr_sx_spr.csv")
+spr_raw <- spr_raw %>% filter(days_past_onset<6|is.na(days_past_onset))
+
+samples_of_interest <- c("G-II Fine Aerosol", "G-II Coarse Aerosol", "Midturbinate Swab")
+
+spr_before <- spr_before_raw %>%
+  mutate(log_quant = if_else(av_quant == 0, 0, log10(av_quant)),
+         subject_id = as.factor(study_id),
+         days_past_onset = as.factor(days_past_onset),
+         period = "Before Sep 2021",
+         variant2 = if_else(S.gene.dropout == "TRUE", "Alpha", "Ancestral/other"),
+         ct_ngene = if_else(ct_ngene_qpcr == -1, 40, ct_ngene_qpcr),
+         ct_sgene = if_else(ct_sgene_qpcr == -1, 40, ct_sgene_qpcr),
+         ct_orfgene = if_else(ct_orfgene_qpcr == -1, 40, ct_orfgene_qpcr)) %>% 
+  mutate(seq_variant = variant2,
+         variant3 = variant2)
+length(unique(spr_before$subject_id))
+
+before_sub <- spr_before %>% 
+  filter(sample_type %in% samples_of_interest) %>% 
+  select(subject_id, sample_date, av_quant, log_quant, sample_type, period, days_past_onset, variant2, variant3, seq_variant, ct_ngene)
+
+spr <- spr_raw %>% 
+  mutate(log_quant = if_else(av_quant == 0, 0, log10(av_quant)),
+         subject_id = as.factor(subject_id),
+         days_past_onset = as.factor(days_past_onset),
+         period = "After Sep 2021",
+         variant2 = if_else(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1", "Omicron BA.2"), "Omicron", seq_variant),
+         ct_ngene = if_else(ct_ngene_qpcr == -1, 40, ct_ngene_qpcr),
+         ct_sgene = if_else(ct_sgene_qpcr == -1, 40, ct_sgene_qpcr),
+         ct_orfgene = if_else(ct_orfgene_qpcr == -1, 40, ct_orfgene_qpcr)) %>% 
+  mutate(variant3 = variant2)
+
+now_sub <- spr %>% filter(sample_type %in% samples_of_interest) %>% 
+  select(subject_id, sample_date, av_quant, log_quant, sample_type, period, days_past_onset, variant2, variant3, seq_variant,ct_ngene)
+
+breath_mts_total <- bind_rows(now_sub,before_sub)
+
+breath_mts_total <- breath_mts_total %>% 
+  mutate(variant2 = factor(variant2, 
+                          levels = c("Ancestral/other", "Alpha", "Delta", "Omicron"),
+                          labels = c("Ancestral/other", "Alpha", "Delta", "Omicron"))) %>% 
+  mutate(variant3 = factor(variant3, 
+                          levels = c("Ancestral/other", "Alpha", "Delta", "Omicron BA.1","Omicron BA.2"),
+                          labels = c("Ancestral/other", "Alpha", "Delta",  "Omicron BA.1","Omicron BA.2")))
+
+breath_mts_total <- breath_mts_total %>% mutate(omicron = if_else(variant2 == "Omicron", "Yes", "No"))
+```
+prepare complete dataset and dataset limited data to at least one of the breath samples is not 0 per subject-sample_date:
+```{r}
+stat_box_data <-function(y, upper_limit = 9.085) {
+  data.frame(y = -0.02 * upper_limit,
+             label = paste0('n=', length(y), '\n')
+  )
+}
+
+fine_complete <- breath_mts_total %>% 
+  filter(sample_type == "G-II Fine Aerosol") %>%
+  mutate(fine_av_quant = av_quant, fine_log_quant = log_quant, fine_ct_ngene = ct_ngene) %>% 
+  select(subject_id, fine_av_quant, fine_log_quant, days_past_onset, sample_date, period, variant2, omicron, variant3,seq_variant,fine_ct_ngene) 
+fine_complete_sub <- fine_complete %>%filter(fine_av_quant !=0)  
+
+coarse_complete <- breath_mts_total %>% 
+  filter(sample_type == "G-II Coarse Aerosol") %>%
+  mutate(coarse_av_quant = av_quant, coarse_log_quant = log_quant, coarse_ct_ngene = ct_ngene) %>% 
+  select(subject_id, coarse_av_quant, coarse_log_quant, days_past_onset, sample_date, period, variant2, omicron, variant3, seq_variant,coarse_ct_ngene)
+coarse <- coarse_complete %>% select(subject_id, coarse_av_quant, coarse_log_quant, sample_date, coarse_ct_ngene)
+coarse_complete_sub <- coarse_complete %>%filter(coarse_av_quant !=0)
+
+mts_complete <- breath_mts_total %>% 
+  filter(sample_type == "Midturbinate Swab") %>%
+  mutate(mts_av_quant = av_quant, mts_log_quant = log_quant, mts_ct_ngene = ct_ngene) %>% 
+  select(subject_id, mts_av_quant, mts_log_quant, days_past_onset, sample_date, period, variant2, omicron, variant3, seq_variant,mts_ct_ngene)
+
+mts <- mts_complete %>% select(subject_id, mts_av_quant, mts_log_quant, sample_date, mts_ct_ngene) 
+
+#create dataset including all the breath samples:breath_mts_total_wide2
+breath_mts_total_wide2 <- fine_complete %>% 
+  left_join(coarse, by = c("subject_id", "sample_date")) %>% 
+  mutate(av_quant_total = coarse_av_quant + fine_av_quant)
+
+breath_mts_total_wide2 <- breath_mts_total_wide2 %>% 
+  mutate(av_quant_total_log10 = if_else((av_quant_total == 0), 0, log10(av_quant_total)))
+
+breath_mts_total_wide2 <- breath_mts_total_wide2 %>% 
+  left_join(mts, by = c("subject_id", "sample_date")) %>% 
+  mutate(log_mts_coarse_ratio = log10(mts_av_quant/(coarse_av_quant+1)),
+         log_mts_fine_ratio = log10(mts_av_quant/(fine_av_quant+1)),
+         log_mts_total_ratio = log10(mts_av_quant/(av_quant_total+1)),
+         mts_coarse_ratio =  mts_av_quant/(coarse_av_quant+1),
+         mts_fine_ratio = mts_av_quant/(fine_av_quant+1),
+         mts_total_ratio = mts_av_quant/(av_quant_total+1))
+
+length(unique(breath_mts_total_wide2$subject_id))
+```
+side by side comparison of log RNA copoies for specific variants with others
+```{r}
+remove_plot_mts <- function(data, aerosol_name, aerosol_log_quant, variant_value){
+  sub_remove_variant <- data %>% filter(variant2 != variant_value)
+
+  plot <- sub_remove_variant %>%
+    ggplot(aes(y=eval(parse(text=aerosol_log_quant)),x=mts_log_quant)) +
+    geom_point(aes(color=variant2,shape=variant2),size=3,alpha=0.9,
+               position=position_jitter(h=.1,w=.1,seed=42)) +
+    geom_smooth(method = "loess") +
+    stat_cor(method = "spearman",cor.coef.name = "rho", size = 8) +
+    ylab(paste(aerosol_name,"aerosol (log10)")) +
+    xlab("MTS (log10)") +
+    labs(color = "Variant", shape = "Variant")+
+    scale_y_continuous(breaks=c(-4:8),limits = c(-4, 8)) +
+    scale_x_continuous(breaks=c(0,2.5,5.0,7.5,10),limits = c(-1, 10)) +
+    #expand_limits(x=0,y=-2) +
+    scale_shape_variant+
+    scale_color_variant+
+    theme_bw()+
+    theme(axis.text = element_text(size = 15),
+        axis.text.x=element_text(face='bold'),
+        axis.text.y=element_text(face='bold'),
+        axis.title.x=element_text(size=15, face='bold'),
+        axis.title.y=element_text(size=15, face='bold'),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20, face='bold'))+
+    guides(shape = guide_legend(override.aes = list(size = 5)))
+  return(plot)
+}
+
+include_plot_mts <- function(data, aerosol_name, aerosol_log_quant, variant_value){
+  sub_remove_variant <- data %>% filter(variant2 == variant_value)
+
+  plot <- sub_remove_variant %>%
+    ggplot(aes(y=eval(parse(text=aerosol_log_quant)),x=mts_log_quant)) +
+    geom_point(aes(color=variant2,shape=variant2),size=3,alpha=0.9,
+               position=position_jitter(h=.1,w=.1,seed=42)) +
+    geom_smooth(method = "loess") +
+    stat_cor(method = "spearman",cor.coef.name = "rho", size = 8) +
+    ylab(paste(aerosol_name,"aerosol (log10)")) +
+    xlab("MTS (log10)") +
+    labs(color = "Variant", shape = "Variant")+
+    scale_y_continuous(breaks=c(-4:8),limits = c(-4, 8)) +
+    scale_x_continuous(breaks=c(0,2.5,5.0,7.5,10),limits = c(-1, 10)) +
+    #expand_limits(x=0,y=-2) +
+    scale_shape_variant+
+    scale_color_variant+
+    theme_bw()+
+    theme(axis.text = element_text(size = 15),
+        axis.text.x=element_text(face='bold'),
+        axis.text.y=element_text(face='bold'),
+        axis.title.x=element_text(size=15, face='bold'),
+        axis.title.y=element_text(size=15, face='bold'),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20, face='bold'))+
+    guides(shape = guide_legend(override.aes = list(size = 5)))
+  return(plot)
+}
+
+#side-by-side comparison of both D's against plots of Omicron only
+mts_with_without_omicron_comparison_full_data <- ggarrange(
+                      remove_plot_mts(breath_mts_total_wide2,"Fine","fine_log_quant", "Omicron"),
+                      include_plot_mts(breath_mts_total_wide2,"Fine","fine_log_quant", "Omicron"),
+                      remove_plot_mts(breath_mts_total_wide2,"Coarse","coarse_log_quant", "Omicron"),
+                      include_plot_mts(breath_mts_total_wide2,"Coarse","coarse_log_quant", "Omicron"),
+                      labels = c("A", 
+                                 "B",
+                                 "C",
+                                 "D"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "bottom",
+                      align = "h")
+mts_with_without_omicron_comparison_full_data
+#ggsave(mts_with_without_omicron_comparison_full_data,filename="../output/mts_with_without_omicron_comparison_full_data.png",device="png",width=11,height=7.77,units="in")
+```
+side by side comparison of N gene Ct values for specific variants with others
+```{r}
+
+remove_plot_ct_mts <- function(data, aerosol_name, aerosol_ct, variant_value, note_text){
+  sub_remove_variant <- data %>% filter(variant2 != variant_value)
+
+  plot <- sub_remove_variant %>%
+    ggplot(aes(y=eval(parse(text=aerosol_ct)),x=mts_ct_ngene)) +
+    geom_point(aes(color=variant2,shape=variant2),size=3,alpha=0.9,
+               position=position_jitter(h=.1,w=.1,seed=42)) +
+    geom_smooth(method = "loess") +
+    stat_cor(method = "spearman",cor.coef.name = "rho", size = 8, label.x = 40, label.y = 20) +
+    ylab(paste(aerosol_name,"(N gene Ct)")) +
+    xlab("MTS (N gene Ct)") +
+    labs(color = "Variant", shape = "Variant")+
+    coord_cartesian(ylim = c(40, 18), xlim = c(40,10))+
+    scale_shape_variant+
+    scale_color_variant+
+  ggtitle(note_text)+
+    theme_bw()+
+    theme(axis.text = element_text(size = 15),
+        axis.text.x=element_text(face='bold'),
+        axis.text.y=element_text(face='bold'),
+        axis.title.x=element_text(size=15, face='bold'),
+        axis.title.y=element_text(size=15, face='bold'),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20, face='bold'),
+        plot.title = element_text(size = 20, face = "bold"))+
+    guides(shape = guide_legend(override.aes = list(size = 5)))
+  return(plot)
+}
+
+include_plot_ct_mts <- function(data, aerosol_name, aerosol_ct, variant_value,  note_text){
+  sub_remove_variant <- data %>% filter(variant2 == variant_value)
+
+  plot <- sub_remove_variant %>%
+    ggplot(aes(y=eval(parse(text=aerosol_ct)),x=mts_ct_ngene)) +
+    geom_point(aes(color=variant2,shape=variant2),size=3,alpha=0.9,
+               position=position_jitter(h=.1,w=.1,seed=42)) +
+    geom_smooth(method = "loess") +
+    stat_cor(method = "spearman",cor.coef.name = "rho", size = 8, label.x = 40, label.y = 20) +
+    ylab(paste(aerosol_name,"(N gene Ct)")) +
+    xlab("MTS (N gene Ct)") +
+    labs(color = "Variant", shape = "Variant")+
+    coord_cartesian(ylim = c(40, 18), xlim = c(40,10))+
+    scale_shape_variant+
+    scale_color_variant+
+  ggtitle(note_text)+
+    theme_bw()+
+    theme(axis.text = element_text(size = 15),
+        axis.text.x=element_text(face='bold'),
+        axis.text.y=element_text(face='bold'),
+        axis.title.x=element_text(size=15, face='bold'),
+        axis.title.y=element_text(size=15, face='bold'),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20, face='bold'),
+        plot.title = element_text(size = 20, face = "bold"))+
+    guides(shape = guide_legend(override.aes = list(size = 5)))
+  return(plot)
+}
+
+```
+Repeat the above procedure for saliva
+```{r}
+spr <- spr_raw %>% mutate(variant2 = if_else(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1", "Omicron BA.2"), "Omicron", seq_variant))
+samples_of_interest <- c("G-II Fine Aerosol", "G-II Coarse Aerosol", "Saliva")
+
+spr_before <- spr_before_raw %>% 
+  mutate(log_quant = if_else(av_quant == 0, 0, log10(av_quant)),
+         subject_id = as.factor(study_id),
+         days_past_onset = as.factor(days_past_onset),
+         period = "Before Sep 2021",
+         variant2 = if_else(S.gene.dropout == "TRUE", "Alpha", "Ancestral/other"),
+         ct_ngene = if_else(ct_ngene_qpcr == -1, 40, ct_ngene_qpcr))
+
+before_sub <- spr_before %>% 
+  filter(sample_type %in% samples_of_interest) %>% 
+  select(subject_id, sample_date, av_quant, log_quant, sample_type, period, days_past_onset, variant2, ct_ngene)
+
+spr <- spr %>% 
+  mutate(log_quant = if_else(av_quant == 0, 0, log10(av_quant)),
+         subject_id = as.factor(subject_id),
+         days_past_onset = as.factor(days_past_onset),
+         period = "After Sep 2021",
+         ct_ngene = if_else(ct_ngene_qpcr == -1, 40, ct_ngene_qpcr))
+
+now_sub <- spr %>% filter(sample_type %in% samples_of_interest) %>% 
+  select(subject_id, sample_date, av_quant, log_quant, sample_type, period, days_past_onset, variant2, ct_ngene)
+
+breath_saliva_total <- bind_rows(now_sub,before_sub)
+
+breath_saliva_total <- breath_saliva_total %>% 
+  mutate(variant2 = factor(variant2, 
+                          levels = c("Ancestral/other", "Alpha", "Delta", "Omicron"),
+                          labels = c("Ancestral/other", "Alpha", "Delta", "Omicron")))
+```
+prepare complete dataset and dataset limited data to at least one of the breath samples is not 0 per subject-sample_date:
+```{r}
+fine_complete <- breath_saliva_total %>% 
+  filter(sample_type == "G-II Fine Aerosol") %>%
+  mutate(fine_av_quant = av_quant, fine_log_quant = log_quant, fine_ct_ngene = ct_ngene) %>% 
+  select(subject_id, fine_av_quant, fine_log_quant, days_past_onset, sample_date, period, variant2, fine_ct_ngene) 
+fine_complete_sub <- fine_complete %>%filter(fine_av_quant !=0)  
+
+coarse_complete <- breath_saliva_total %>% 
+  filter(sample_type == "G-II Coarse Aerosol") %>%
+  mutate(coarse_av_quant = av_quant, coarse_log_quant = log_quant, coarse_ct_ngene = ct_ngene) %>% 
+  select(subject_id, coarse_av_quant, coarse_log_quant, days_past_onset, sample_date, period, variant2,coarse_ct_ngene)
+coarse <- coarse_complete %>% select(subject_id, coarse_av_quant, coarse_log_quant, sample_date, coarse_ct_ngene)
+coarse_complete_sub <- coarse_complete %>%filter(coarse_av_quant !=0)
+
+saliva_complete <- breath_saliva_total %>% 
+  filter(sample_type == "Saliva") %>%
+  mutate(saliva_av_quant = av_quant, saliva_log_quant = log_quant, saliva_ct_ngene = ct_ngene) %>% 
+  select(subject_id, saliva_av_quant, saliva_log_quant, days_past_onset, sample_date, period, variant2,saliva_ct_ngene)
+
+saliva <- saliva_complete %>% select(subject_id, saliva_av_quant, saliva_log_quant, sample_date, saliva_ct_ngene) 
+
+#create dataset including all the breath samples:breath_saliva_total_wide2
+breath_saliva_total_wide2 <- fine_complete %>% 
+  left_join(coarse, by = c("subject_id", "sample_date")) %>% 
+  mutate(av_quant_total = coarse_av_quant + fine_av_quant)
+
+breath_saliva_total_wide2 <- breath_saliva_total_wide2 %>% 
+  mutate(av_quant_total_log10 = if_else((av_quant_total == 0), 0, log10(av_quant_total)))
+
+
+breath_saliva_total_wide2 <- breath_saliva_total_wide2 %>% 
+  left_join(saliva, by = c("subject_id", "sample_date")) %>% 
+  mutate(log_saliva_coarse_ratio = log10((saliva_av_quant+1)/(coarse_av_quant+1)),
+         log_saliva_fine_ratio = log10((saliva_av_quant+1)/(fine_av_quant+1)),
+         log_saliva_total_ratio = log10((saliva_av_quant+1)/(av_quant_total+1)),
+         saliva_coarse_ratio =  (saliva_av_quant+1)/(coarse_av_quant+1),
+         saliva_fine_ratio = (saliva_av_quant+1)/(fine_av_quant+1),
+         saliva_total_ratio = (saliva_av_quant+1)/(av_quant_total+1))
+
+```
+
+Plot for the correlation between saliva and aerosol samples
+```{r}
+#using qpcr data
+remove_plot_saliva <- function(data, aerosol_name, aerosol_log_quant, variant_value){
+  sub_remove_variant <- data %>% filter(variant2 != variant_value)
+
+  plot <- sub_remove_variant %>%
+    ggplot(aes(y=eval(parse(text=aerosol_log_quant)),x=saliva_log_quant)) +
+    geom_point(aes(color=variant2,shape=variant2),size=3,alpha=0.9,
+               position=position_jitter(h=.1,w=.1,seed=42)) +
+    geom_smooth(method = "loess") +
+    stat_cor(method = "spearman",cor.coef.name = "rho", size = 8) +
+    ylab(paste(aerosol_name,"aerosol (log10)")) +
+    xlab("Saliva (log10)") +
+    labs(color = "Variant", shape = "Variant")+
+    scale_y_continuous(breaks=c(-4:8),limits = c(-4, 8)) +
+    scale_x_continuous(breaks=c(0,2.5,5.0,7.5,10),limits = c(-1, 10)) +
+    #expand_limits(x=0,y=-2) +
+    scale_shape_variant+
+    scale_color_variant+
+    theme_bw()+
+    theme(axis.text = element_text(size = 15),
+        axis.text.x=element_text(face='bold'),
+        axis.text.y=element_text(face='bold'),
+        axis.title.x=element_text(size=15, face='bold'),
+        axis.title.y=element_text(size=15, face='bold'),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20, face='bold'))+
+    guides(shape = guide_legend(override.aes = list(size = 5)))
+  return(plot)
+}
+
+include_plot_saliva <- function(data, aerosol_name, aerosol_log_quant, variant_value){
+  sub_remove_variant <- data %>% filter(variant2 == variant_value)
+
+  plot <- sub_remove_variant %>%
+    ggplot(aes(y=eval(parse(text=aerosol_log_quant)),x=saliva_log_quant)) +
+    geom_point(aes(color=variant2,shape=variant2),size=3,alpha=0.9,
+               position=position_jitter(h=.1,w=.1,seed=42)) +
+    geom_smooth(method = "loess") +
+    stat_cor(method = "spearman",cor.coef.name = "rho", size = 8) +
+    ylab(paste(aerosol_name,"aerosol (log10)")) +
+    xlab("Saliva (log10)") +
+    labs(color = "Variant", shape = "Variant")+
+    scale_y_continuous(breaks=c(-4:8),limits = c(-4, 8)) +
+    scale_x_continuous(breaks=c(0,2.5,5.0,7.5,10),limits = c(-1, 10)) +
+    #expand_limits(x=0,y=-2) +
+    scale_shape_variant+
+    scale_color_variant+
+    theme_bw()+
+    theme(axis.text = element_text(size = 15),
+        axis.text.x=element_text(face='bold'),
+        axis.text.y=element_text(face='bold'),
+        axis.title.x=element_text(size=15, face='bold'),
+        axis.title.y=element_text(size=15, face='bold'),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20, face='bold'))+
+    guides(shape = guide_legend(override.aes = list(size = 5)))
+  return(plot)
+}
+
+#side-by-side comparison of both D's against plots of Omicron only
+saliva_with_without_omicron_comparison_full_data <- ggarrange(
+                      remove_plot_saliva(breath_saliva_total_wide2,"Fine","fine_log_quant", "Omicron"),
+                      include_plot_saliva(breath_saliva_total_wide2,"Fine","fine_log_quant", "Omicron"),
+                      remove_plot_saliva(breath_saliva_total_wide2,"Coarse","coarse_log_quant", "Omicron"),
+                      include_plot_saliva(breath_saliva_total_wide2,"Coarse","coarse_log_quant", "Omicron"),
+                      labels = c("a", 
+                                 "b",
+                                 "c",
+                                 "d"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "bottom",
+                      align = "h")
+saliva_with_without_omicron_comparison_full_data
+#ggsave(saliva_with_without_omicron_comparison_full_data,filename="../output/saliva_with_without_omicron_comparison_full_data.png",device="png",width=11,height=7.77,units="in")
+```
+
+```{r}
+#using ct value
+remove_plot_ct_saliva <- function(data, aerosol_name, aerosol_ct, variant_value,note_text){
+  sub_remove_variant <- data %>% filter(variant2 != variant_value)
+
+  plot <- sub_remove_variant %>%
+    ggplot(aes(y=eval(parse(text=aerosol_ct)),x=saliva_ct_ngene)) +
+    geom_point(aes(color=variant2,shape=variant2),size=3,alpha=0.9,
+               position=position_jitter(h=.1,w=.1,seed=42)) +
+    geom_smooth(method = "loess") +
+    stat_cor(method = "spearman",cor.coef.name = "rho", size = 8, label.x = 40, label.y = 20) +
+    ylab(paste(aerosol_name,"(N gene Ct)")) +
+    xlab("Saliva (N gene Ct)") +
+    labs(color = "Variant", shape = "Variant")+
+    coord_cartesian(ylim = c(40, 18), xlim = c(40,10))+
+    scale_shape_variant+
+    scale_color_variant+
+    theme_bw()+
+  ggtitle(note_text)+
+    theme(axis.text = element_text(size = 15),
+        axis.text.x=element_text(face='bold'),
+        axis.text.y=element_text(face='bold'),
+        axis.title.x=element_text(size=15, face='bold'),
+        axis.title.y=element_text(size=15, face='bold'),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20, face='bold'),
+        plot.title = element_text(size = 20, face = "bold"))+
+    guides(shape = guide_legend(override.aes = list(size = 5)))
+  return(plot)
+}
+
+include_plot_ct_saliva <- function(data, aerosol_name, aerosol_ct, variant_value,note_text){
+  sub_remove_variant <- data %>% filter(variant2 == variant_value)
+
+  plot <- sub_remove_variant %>%
+    ggplot(aes(y=eval(parse(text=aerosol_ct)),x=saliva_ct_ngene)) +
+    geom_point(aes(color=variant2,shape=variant2),size=3,alpha=0.9,
+               position=position_jitter(h=.1,w=.1,seed=42)) +
+    geom_smooth(method = "loess") +
+    stat_cor(method = "spearman",cor.coef.name = "rho", size = 8, label.x = 40, label.y = 20) +
+    ylab(paste(aerosol_name,"(N gene Ct)")) +
+    xlab("Saliva (N gene Ct)") +
+    labs(color = "Variant", shape = "Variant")+
+    coord_cartesian(ylim = c(40, 18), xlim = c(40,10))+
+    scale_shape_variant+
+    scale_color_variant+
+  ggtitle(note_text)+
+    theme_bw()+
+    theme(axis.text = element_text(size = 15),
+        axis.text.x=element_text(face='bold'),
+        axis.text.y=element_text(face='bold'),
+        axis.title.x=element_text(size=15, face='bold'),
+        axis.title.y=element_text(size=15, face='bold'),
+        legend.text = element_text(size = 20),
+        legend.title = element_text(size = 20, face='bold'),
+        plot.title = element_text(size = 20, face = "bold"))+
+    guides(shape = guide_legend(override.aes = list(size = 5)))
+  return(plot)
+}
+
+```
+
+figure 3 and 4
+```{r}
+figure_3 <- ggarrange(remove_plot_mts(breath_mts_total_wide2,"Fine","fine_log_quant", "Omicron"),
+                      include_plot_mts(breath_mts_total_wide2,"Fine","fine_log_quant", "Omicron"),
+                      remove_plot_saliva(breath_saliva_total_wide2,"Fine","fine_log_quant", "Omicron"),
+                      include_plot_saliva(breath_saliva_total_wide2,"Fine","fine_log_quant", "Omicron"),
+                      labels = c("a", 
+                                 "b",
+                                 "c",
+                                 "d"),
+                      font.label = list(size = 20, face = "bold"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "bottom",
+                      align = "h")
+figure_3
+
+ggsave(figure_3,filename="../output/si_fig3_corr_fine_mts_saliva_lte_5days.png",device="png",width=11,height=7.77,units="in")
+
+figure_4 <- ggarrange(remove_plot_mts(breath_mts_total_wide2,"Coarse","coarse_log_quant", "Omicron"),
+                      include_plot_mts(breath_mts_total_wide2,"Coarse","coarse_log_quant", "Omicron"),
+                      remove_plot_saliva(breath_saliva_total_wide2,"Coarse","coarse_log_quant", "Omicron"),
+                      include_plot_saliva(breath_saliva_total_wide2,"Coarse","coarse_log_quant", "Omicron"),
+                      labels = c("a", 
+                                 "b",
+                                 "c",
+                                 "d"),
+                      font.label = list(size = 20, face = "bold"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "bottom",
+                      align = "h")
+figure_4
+#ggsave(figure_4,filename="../output/extend_figure_1_coarse_mts_saliva.png",device="png",width=11,height=7.77,units="in")
+ggsave(figure_4,filename="../output/si_fig4b_corr_coarse_mts_saliva_lte_5days.png",device="png",width=11,height=7.77,units="in")
+```
+
+figure s2 and s3
+```{r}
+figure_s2 <- ggarrange(remove_plot_ct_mts(breath_mts_total_wide2,"Fine","fine_ct_ngene", "Omicron","a"),
+                      include_plot_ct_mts(breath_mts_total_wide2,"Fine","fine_ct_ngene", "Omicron","b"),
+                      remove_plot_ct_saliva(breath_saliva_total_wide2,"Fine","fine_ct_ngene", "Omicron","c"),
+                      include_plot_ct_saliva(breath_saliva_total_wide2,"Fine","fine_ct_ngene", "Omicron","d"),
+                      font.label = list(size = 20, face = "bold"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "bottom",
+                      align = "h")
+figure_s2
+#ggsave(figure_s2,filename="../output/figure_s2_fine_mts_saliva_ct.png",device="png",width=11,height=7.77,units="in")
+
+figure_s3 <- ggarrange(remove_plot_ct_mts(breath_mts_total_wide2,"Coarse","coarse_ct_ngene", "Omicron","a"),
+                      include_plot_ct_mts(breath_mts_total_wide2,"Coarse","coarse_ct_ngene", "Omicron","b"),
+                      remove_plot_ct_saliva(breath_saliva_total_wide2,"Coarse","coarse_ct_ngene", "Omicron","c"),
+                      include_plot_ct_saliva(breath_saliva_total_wide2,"Coarse","coarse_ct_ngene", "Omicron","d"),
+
+                      font.label = list(size = 20, face = "bold"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "bottom",
+                      align = "h")
+figure_s3
+#ggsave(figure_s3,filename="../output/figure_s3_coarse_mts_saliva_ct.png",device="png",width=11,height=7.77,units="in")
+```
+combine s2 and s3
+```{r}
+part1 <- ggarrange(remove_plot_ct_mts(breath_mts_total_wide2,"Fine","fine_ct_ngene", "Omicron","a"),
+                      include_plot_ct_mts(breath_mts_total_wide2,"Fine","fine_ct_ngene", "Omicron","b"),
+                      remove_plot_ct_saliva(breath_saliva_total_wide2,"Fine","fine_ct_ngene", "Omicron","c"),
+                      include_plot_ct_saliva(breath_saliva_total_wide2,"Fine","fine_ct_ngene", "Omicron","d"),
+
+                      font.label = list(size = 20, face = "bold"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "none",
+                      align = "h")
+part1 <- annotate_figure(part1, top = text_grob("Fine EBA vs. MTS/Saliva", 
+               color = "red", face = "bold", size = 14))
+
+part2 <- ggarrange(remove_plot_ct_mts(breath_mts_total_wide2,"Coarse","coarse_ct_ngene", "Omicron","e"),
+                      include_plot_ct_mts(breath_mts_total_wide2,"Coarse","coarse_ct_ngene", "Omicron","f"),
+                      remove_plot_ct_saliva(breath_saliva_total_wide2,"Coarse","coarse_ct_ngene", "Omicron","g"),
+                      include_plot_ct_saliva(breath_saliva_total_wide2,"Coarse","coarse_ct_ngene", "Omicron","h"),
+
+                      font.label = list(size = 20, face = "bold"),
+                      ncol = 2, nrow=2,
+                      common.legend = T,
+                      legend = "bottom",
+                      align = "h")
+part2 <- annotate_figure(part2, top = text_grob("Coarse EBA vs. MTS/Saliva", 
+               color = "red", face = "bold", size = 14))
+
+```
+
+```{r}
+blank <- grid.rect(gp=gpar(col="white"))
+
+total <- grid.arrange(part1, blank, part2,
+                      ncol=1, nrow=3,
+                      heights = c(6,1,6))
+
+# ggsave(total,filename="../output/extra-extend-fig-1b-9b/extend_figure_ct_plot.png",device="png",dpi=300,height=12.3,width=10.54,units="in")
+```

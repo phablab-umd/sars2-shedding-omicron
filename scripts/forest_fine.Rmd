@@ -1,0 +1,379 @@
+---
+title: "forest_plots"
+author: "Jianyu"
+date: '2022-06-15'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(gridExtra)
+library(tidyverse)
+library(ggpubr)
+library(grid)
+library(lattice)
+library(ggbreak)
+library(patchwork)
+set.seed(42)
+```
+
+separate original table 3 into 4 individual data frames
+```{r}
+all <- read.csv("../output/table_pred_eba.csv")
+all <- all[-1,]%>% 
+  mutate(varname = factor(varname, 
+                          levels = c("Alpha","Delta","Omicron","age_entry","sex_birth","days_past_onset",
+                                     "log_mt","log_sal","cough_count","ur", "lr" ,"gi" ,"sys"),
+                          labels = c("Alpha vs. Other","Delta vs. Other","Omicron vs. Other","Age","Male vs. Female",
+                                     "Days post-symptom onset","Log mid-turbinate swab","Log saliva","Number of coughs",
+                                     "Upper respiratory symptoms", "Lower respiratory symptoms" ,
+                                     "Gastrointestinal symptoms" ,"Systemic symptoms")))
+all$index <- c(1:13)
+#coarse_unajust
+coarse_unajust <- all[,c(1,2,6)]
+coarse_unajust$Coarse.Unadjusted<- gsub(paste(c("[(]", ",","[)]"), collapse = "|"), "", coarse_unajust$Coarse.Unadjusted)
+coarse_unajust <- coarse_unajust %>% separate(Coarse.Unadjusted, sep = " ", c("effect", "LL", "UL")) %>% 
+  mutate(effect = as.numeric(effect),
+         LL = as.numeric(LL),
+         UL = as.numeric(UL))
+coarse_unajust$CI <- ifelse(is.na(coarse_unajust$LL), NA, paste0(coarse_unajust$LL, ", ", coarse_unajust$UL))
+
+
+#coarse_ajust
+coarse_ajust <- all[,c(1,3,6)]
+coarse_ajust$Coarse.Adjusted<- gsub(paste(c("[(]", ",","[)]"), collapse = "|"), "", coarse_ajust$Coarse.Adjusted)
+coarse_ajust <- coarse_ajust %>% separate(Coarse.Adjusted, sep = " ", c("effect", "LL", "UL"))%>% 
+  mutate(effect = as.numeric(effect),
+         LL = as.numeric(LL),
+         UL = as.numeric(UL))
+coarse_ajust$CI <- ifelse(is.na(coarse_ajust$LL), NA, paste0(coarse_ajust$LL, ", ", coarse_ajust$UL))
+
+#fine_unajust
+fine_unajust <- all[,c(1,4,6)]
+fine_unajust$Fine.Unadjusted<- gsub(paste(c("[(]", ",","[)]"), collapse = "|"), "", fine_unajust$Fine.Unadjusted)
+fine_unajust <- fine_unajust %>% separate(Fine.Unadjusted, sep = " ", c("effect", "LL", "UL"))%>% 
+  mutate(effect = as.numeric(effect),
+         LL = as.numeric(LL),
+         UL = as.numeric(UL))
+fine_unajust$CI <- ifelse(is.na(fine_unajust$LL), NA, paste0(fine_unajust$LL, ", ", fine_unajust$UL))
+
+
+#fine_ajust
+fine_ajust <- all[,c(1,5,6)]
+fine_ajust$Fine.Adjusted<- gsub(paste(c("[(]", ",","[)]"), collapse = "|"), "", fine_ajust$Fine.Adjusted)
+fine_ajust <- fine_ajust %>% separate(Fine.Adjusted, sep = " ", c("effect", "LL", "UL"))%>% 
+  mutate(effect = as.numeric(effect),
+         LL = as.numeric(LL),
+         UL = as.numeric(UL))
+fine_ajust$CI <-  ifelse(is.na(fine_ajust$LL), NA, paste0(fine_ajust$LL, ", ", fine_ajust$UL))
+
+```
+
+separate the omicron table into four individual data frames
+```{r}
+omicron <- read.csv("../output/table_model_omicron_v2.csv")
+omicron <- omicron %>% 
+  mutate(varname = factor(varname, 
+                          levels = c("BA2","boosted","anti_nuc","days_since_vax","age_entry","sex_birth","days_past_onset",
+                                     "log_mt","log_sal","cough_count","ur", "lr" ,"gi" ,"sys"),
+                          labels = c("BA.2 vs. BA.1/BA.1.1",
+                                     "Received a booster",
+                                     "Anti-nucleocapsid positive",
+                                     "Days since last vaccine/booster ","Age",
+                                     "Male vs. Female", "Days post-symptom onset",
+                                     "Log mid-turbinate swab","Log saliva",
+                                     "Number of coughs",
+                                     "Upper respiratory symptoms", 
+                                     "Lower respiratory symptoms" ,
+                                     "Gastrointestinal symptoms" ,
+                                     "Systemic symptoms")))
+
+#coarse_unajust2
+coarse_unajust2 <- omicron[c(1, 4:14),c(1,4)]
+coarse_unajust2$Coarse.Unadjusted<- gsub(paste(c("[(]", ",","[)]"), collapse = "|"), "", coarse_unajust2$Coarse.Unadjusted)
+coarse_unajust2 <- coarse_unajust2 %>% separate(Coarse.Unadjusted, sep = " ", c("effect", "LL", "UL"))%>% 
+  mutate(effect = as.numeric(effect),
+         LL = as.numeric(LL),
+         UL = as.numeric(UL))
+coarse_unajust2$CI <- ifelse(is.na(coarse_unajust2$LL), NA, paste0(coarse_unajust2$LL, ", ", coarse_unajust2$UL))
+coarse_unajust2$index <- c(1:12)
+
+#coarse_ajust2
+coarse_ajust2 <- omicron[c(1, 4:14),c(1,5)]
+coarse_ajust2$Coarse.Adjusted<- gsub(paste(c("[(]", ",","[)]"), collapse = "|"), "", coarse_ajust2$Coarse.Adjusted)
+coarse_ajust2 <- coarse_ajust2 %>% separate(Coarse.Adjusted, sep = " ", c("effect", "LL", "UL"))%>% 
+  mutate(effect = as.numeric(effect),
+         LL = as.numeric(LL),
+         UL = as.numeric(UL))
+coarse_ajust2$CI <- ifelse(is.na(coarse_ajust2$LL), NA, paste0(coarse_ajust2$LL, ", ", coarse_ajust2$UL))
+coarse_ajust2$index <- c(1:12)
+
+#fine_unajust2
+fine_unajust2 <- omicron[,c(1,2)]
+fine_unajust2$Fine.Unadjusted<- gsub(paste(c("[(]", ",","[)]"), collapse = "|"), "", fine_unajust2$Fine.Unadjusted)
+fine_unajust2 <- fine_unajust2 %>% separate(Fine.Unadjusted, sep = " ", c("effect", "LL", "UL"))%>% 
+  mutate(effect = as.numeric(effect),
+         LL = as.numeric(LL),
+         UL = as.numeric(UL))
+fine_unajust2$CI <-  ifelse(is.na(fine_unajust2$LL), NA, paste0(fine_unajust2$LL, ", ", fine_unajust2$UL))
+fine_unajust2$index <- c(1:14)
+
+#fine_ajust2
+fine_ajust2 <- omicron[,c(1,3)]
+fine_ajust2$Fine.Adjusted<- gsub(paste(c("[(]", ",","[)]"), collapse = "|"), "", fine_ajust2$Fine.Adjusted)
+fine_ajust2 <- fine_ajust2 %>% separate(Fine.Adjusted, sep = " ", c("effect", "LL", "UL"))%>% 
+  mutate(effect = as.numeric(effect),
+         LL = as.numeric(LL),
+         UL = as.numeric(UL))
+fine_ajust2$CI <-  ifelse(is.na(fine_ajust2$LL), NA, paste0(fine_ajust2$LL, ", ", fine_ajust2$UL))
+fine_ajust2$index <- c(1:14)
+```
+
+```{r}
+## Plot forest plot for all
+forest_all <- function(dat, title, letter){
+  plot1 <- dat %>% 
+    ggplot(aes(y = index, x = log10(effect))) +
+    geom_point(shape = 18, size = 2) +  
+    geom_errorbarh(aes(xmin = log10(LL), xmax = log10(UL)), height = 0.25) +
+    geom_vline(xintercept = 0, color = "red", linetype = "dashed", cex = 1, alpha = 0.5) +
+    scale_y_continuous(name = "", breaks=1:13, labels = dat$varname, trans = "reverse") +
+    scale_x_continuous(limits=c(log10(0.61),log10(120)), breaks = c(-1, 0, 1, 2 ), labels = c(0.1, 1,10, 100))+
+    xlab(title) + 
+    ylab(" ") + 
+    ggtitle(letter)+
+    theme_bw() +
+    theme(panel.border = element_blank(),
+          panel.background = element_blank(),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(), 
+          axis.line = element_line(colour = "black"),
+          axis.text.y = element_text(size = 8, colour = "black", face = "bold"),
+          axis.text.x.bottom = element_text(size = 10, colour = "black"),
+          axis.title.x = element_text(size = 10, colour = "black", face = "bold"),
+          plot.title = element_text(size = 15, face = "bold"))
+  
+  ## Create the table-base pallete
+  table_base <- ggplot(dat, aes(y=varname)) +
+    ylab(NULL) + xlab("  ") + 
+    theme(plot.title = element_text(hjust = 0.5, size=12), 
+          axis.text.x = element_text(color="white", hjust = -3, size = 16), ## This is used to help with alignment
+          axis.line = element_blank(),
+          axis.text.y = element_blank(), 
+          axis.ticks = element_blank(),
+          axis.title.y = element_blank(), 
+          legend.position = "none",
+          panel.background = element_blank(), 
+          panel.border = element_blank(), 
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(), 
+          plot.background = element_blank())
+  
+  ## OR point estimate table
+  tab1 <- table_base + 
+    labs(title = "space") +
+    geom_text(aes(y = rev(index), x = 1, label = effect), size = 3.5) + 
+    ggtitle("Estimate")+
+    theme(plot.title = element_text(size = 10, face = "bold"))
+  
+  ## 95% CI table
+  tab2 <- table_base +
+    geom_text(aes(y = rev(index), x = 1, label = CI), size = 3.5) + 
+    ggtitle("95% CI")+
+    theme(plot.title = element_text(size = 10, face = "bold"))
+  
+  lay <-  matrix(c(1,1,1,1,1,1,1,1,1,1,2,3,3), nrow = 1)
+  f <- arrangeGrob(plot1, tab1, tab2, layout_matrix = lay)
+  return(f)
+}
+
+fu <- forest_all(fine_unajust, "All infections: Fine EBA, Unadjusted","c")
+fa <- forest_all(fine_ajust, "All infections: Fine EBA, Adjusted","d")
+cu <- forest_all(coarse_unajust, "All infections: Coarse EBA, Unadjusted","c")
+ca <- forest_all(coarse_ajust, "All infections: Coarse EBA, Adjusted","d")
+
+```
+
+```{r}
+## Plot forest plot for omicron fine
+forest_omicron_fine <- function(dat, title, letter) {
+  plot1 <- dat %>% 
+    ggplot(aes(y = index, x = log10(effect))) +
+    geom_point(shape = 18, size = 2) +  
+    geom_errorbarh(aes(xmin = log10(LL), xmax = log10(UL)), height = 0.25) +
+    geom_vline(xintercept = 0, color = "red", linetype = "dashed", cex = 1, alpha = 0.5) +
+    scale_y_continuous(name = "", breaks=1:14, labels = dat$varname, trans = "reverse") +
+    scale_x_continuous(#limits=c(log10(1.5e-14),log10(1500)),
+                      limits = c(-14, log10(1500)),
+                       breaks = c(-14,-1, 0, 1, 2, 3), 
+                       labels = c(10^-14, 0.1, 1, 10, 100, 10^3))+
+    scale_x_break(breaks = c(-13, -1.5), space = 0.001)+
+    xlab(title) + 
+    ylab(" ") + 
+    theme_bw() +
+    ggtitle(letter)+
+    theme(panel.border = element_blank(),
+          panel.background = element_blank(),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(), 
+          axis.line = element_line(colour = "black"),
+          axis.text.y = element_text(size = 8, colour = "black", face = "bold"),
+          axis.text.x.bottom = element_text(size = 10, colour = "black"),
+          axis.title.x = element_text(size = 10, colour = "black", face = "bold"),
+          plot.title = element_text(size = 15, face = "bold"),
+          axis.text.x.top = element_blank(),
+          axis.ticks.x.top = element_blank(),
+          axis.line.x.top = element_blank())
+  
+ plot1 <- print(plot1) 
+  ## Create the table-base pallete
+  table_base <- ggplot(dat, aes(y=varname)) +
+    ylab(NULL) + xlab("  ") + 
+    theme(plot.title = element_text(hjust = 0.5, size=12), 
+          axis.text.x = element_text(color="white", hjust = -3, size = 16), ## This is used to help with alignment
+          axis.line = element_blank(),
+          axis.text.y = element_blank(), 
+          axis.ticks = element_blank(),
+          axis.title.y = element_blank(), 
+          legend.position = "none",
+          panel.background = element_blank(), 
+          panel.border = element_blank(), 
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(), 
+          plot.background = element_blank())
+  
+  ## OR point estimate table
+  tab1 <- table_base + 
+    labs(title = "space") +
+    geom_text(aes(y = rev(index), x = 1, label = effect), size = 3.5) + 
+    ggtitle("Estimate")+
+    theme(plot.title = element_text(size = 10, face = "bold"))
+  
+  ## 95% CI table
+  tab2 <- table_base +
+    geom_text(aes(y = rev(index), x = 1, label = CI), size = 3.5) + 
+    ggtitle("95% CI")+
+    theme(plot.title = element_text(size = 10, face = "bold"))
+  
+  lay <-  matrix(c(1,1,1,1,1,1,1,1,1,1,2,3,3), nrow = 1)
+  f <- arrangeGrob(plot1, tab1, tab2, layout_matrix = lay)
+  return(f)
+}
+
+fu2 <- forest_omicron_fine(fine_unajust2, "                                            Omicron infections: Fine EBA, Unadjusted","a")
+fa2 <- forest_omicron_fine(fine_ajust2, "                                            Omicron infections: Fine EBA, Adjusted","b")
+
+```
+
+```{r}
+## Plot forest plot for omicron coarse
+forest_omicron_coarse <- function(dat, title, letter) {
+  plot1 <- dat %>% 
+    ggplot(aes(y = index, x = log10(effect))) +
+    geom_point(shape = 18, size = 2) +  
+    geom_errorbarh(aes(xmin = log10(LL), xmax = log10(UL)), height = 0.25) +
+    geom_vline(xintercept = 0, color = "red", linetype = "dashed", cex = 1, alpha = 0.5) +
+    scale_y_continuous(name = "", breaks=1:12, labels = dat$varname, trans = "reverse") +
+    scale_x_continuous(limits=c(log10(7.8e-13),log10(1700000)), 
+                       breaks = c(-13, -1, 0, 1, 2, 7), 
+                       labels = c("10^-13",0.1, 1, 10, 100, "10^7"))+
+    xlab(title) + 
+    ylab(" ") + 
+    theme_bw() +
+    ggtitle(letter)+
+    theme(panel.border = element_blank(),
+          panel.background = element_blank(),
+          panel.grid.major = element_blank(), 
+          panel.grid.minor = element_blank(), 
+          axis.line = element_line(colour = "black"),
+          axis.text.y = element_text(size = 8, colour = "black", face = "bold"),
+          axis.text.x.bottom = element_text(size = 10, colour = "black"),
+          axis.title.x = element_text(size = 10, colour = "black", face = "bold"),
+          plot.title = element_text(size = 15, face = "bold"))
+  
+  ## Create the table-base pallete
+  table_base <- ggplot(dat, aes(y=varname)) +
+    ylab(NULL) + xlab("  ") + 
+    theme(plot.title = element_text(hjust = 0.5, size=12), 
+          axis.text.x = element_text(color="white", hjust = -3, size = 16), ## This is used to help with alignment
+          axis.line = element_blank(),
+          axis.text.y = element_blank(), 
+          axis.ticks = element_blank(),
+          axis.title.y = element_blank(), 
+          legend.position = "none",
+          panel.background = element_blank(), 
+          panel.border = element_blank(), 
+          panel.grid.major = element_blank(),
+          panel.grid.minor = element_blank(), 
+          plot.background = element_blank())
+  
+  ## OR point estimate table
+  tab1 <- table_base + 
+    labs(title = "space") +
+    geom_text(aes(y = rev(index), x = 1, label = effect), size = 3.5) + 
+    ggtitle("Estimate")+
+    theme(plot.title = element_text(size = 10, face = "bold"))
+  
+  ## 95% CI table
+  tab2 <- table_base +
+    geom_text(aes(y = rev(index), x = 1, label = CI), size = 3.5) + 
+    ggtitle("95% CI")+
+    theme(plot.title = element_text(size = 10, face = "bold"))
+  
+  lay <-  matrix(c(1,1,1,1,1,1,1,1,1,1,2,3,3), nrow = 1)
+  f <- arrangeGrob(plot1, tab1, tab2, layout_matrix = lay)
+  return(f)
+}
+
+cu2 <- forest_omicron_coarse(coarse_unajust2, "Omicron infections: Coarse EBA, Unadjusted","a")
+ca2 <- forest_omicron_coarse(coarse_ajust2, "Omicron infections: Coarse EBA, Adjusted","b")
+
+```
+
+```{r}
+t_all <- textGrob('All SARS-CoV-2 Infections, 93 participants and 150 samples', gp = gpar(fontsize = 14, col = "red", fontface = 'bold'))
+t_omicron <- textGrob('Omicron Infections, 29 participants and 44 samples', gp = gpar(fontsize = 14, col = "red",fontface = 'bold'))
+
+blank <- grid.rect(gp=gpar(col="white"))
+
+fine_total<- grid.arrange(t_omicron,
+                      fu2, fa2, 
+                     blank,
+                     t_all,
+                      fu, fa,
+                      ncol=2, nrow=7,
+                      layout_matrix = rbind(c(1,1),
+                                            c(2,2),
+                                            c(3,3),
+                                            c(4,4),
+                                            c(5,5),
+                                            c(6,6),
+                                            c(7,7)),
+                      heights = c(0.05, 1, 1, 0.1, 0.05, 1,1))
+
+
+coarse_total<- grid.arrange(t_omicron,
+                      cu2, 
+                      ca2,
+                     blank,
+                     t_all,
+                      cu, 
+                     ca,
+                      ncol=2, nrow=7,
+                      layout_matrix = rbind(c(1,1),
+                                            c(2,2),
+                                            c(3,3),
+                                            c(4,4),
+                                            c(5,5),
+                                            c(6,6),
+                                            c(7,7)),
+                      heights = c(0.05, 1, 1, 0.1, 0.05, 1,1))
+
+```
+
+```{r}
+ggsave(file="../output/fig4_forest_fine.png", fine_total, dpi=600,height=14,width=12)
+#ggsave(file="../output/figure_4_forest_coarse2.png", coarse_total, dpi=600,height=14,width=12)
+ggsave(file="../output/tiff/fig4_forest_fine.tiff", fine_total, dpi=600,height=14,width=12, device="tiff",compression="lzw")
+```
+

@@ -1,0 +1,567 @@
+---
+title: "table_1_total_93_cases"
+author: "Jianyu"
+date: "3/11/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(table1)
+library(rvest)
+library(car)
+```
+
+This script is used for creating table 1 for all the 93 cases. 
+Need to unmute or mute the filter lines for different groups.
+```{r}
+rpr_after <- read.csv(file = "../working_files/nonpaired_pcr_sx_rpr.csv")
+
+spr <- read.csv(file = "../working_files/nonpaired_pcr_sx_spr.csv")
+
+demo_after <- readRDS(file = "../working_files/nonpaired_demohist.RDS")
+
+
+rpr_before <- read.csv(file = "../working_files/manuscript_1_all_61_nonpaired_pcr_sx_rpr.csv")
+
+spr_before <- read.csv(file = "../working_files/manuscript_1_all_61_nonpaired_pcr_sx_spr.csv")
+
+
+demo_before <-readRDS(file="../working_files/manuscript_1_all_61_nonpaired_demohist.RDS")
+
+
+sgtf_samples <- spr_before %>% filter(S.gene.dropout)
+sgtf_sids <- sgtf_samples$study_id %>% unique() %>% sort()
+demo_before$sgtf_flag <- demo_before$study_id %>% sapply(function(x) {(x %in% sgtf_sids) %>% as.numeric()})
+
+#for vaccine/booster - EBA tabulation
+prior_fine_lod <- rpr_before %>% filter(any_rep_lod1)%>% 
+  filter (sample_type == "G-II Fine Aerosol") %>% mutate(subject_id = as.factor(study_id)) %>% select (subject_id) %>% unique() %>% mutate(fine_pos = "TRUE")
+
+prior_coarse_lod <- rpr_before %>% filter(any_rep_lod1) %>% 
+  filter (sample_type == "G-II Coarse Aerosol") %>% mutate(subject_id = as.factor(study_id)) %>% select (subject_id) %>% unique()%>% mutate(coarse_pos = "TRUE")
+
+latter_fine_lod <- rpr_after %>% filter(any_rep_lod1)%>% 
+  filter (sample_type == "G-II Fine Aerosol") %>% mutate(subject_id = as.factor(subject_id)) %>% select (subject_id) %>% unique() %>% mutate(fine_pos = "TRUE")
+
+latter_coarse_lod <- rpr_after %>% filter(any_rep_lod1) %>% 
+  filter (sample_type == "G-II Coarse Aerosol") %>% mutate(subject_id = as.factor(subject_id)) %>% select (subject_id) %>% unique()%>% mutate(coarse_pos = "TRUE")
+
+table(demo_after$seq_variant)
+
+#additional dataset cleanup
+demo_before$age_cat[demo_before$age_entry<18] <- "less than 18"
+demo_before$age_cat[which(demo_before$age_entry>=18 & demo_before$age_entry<45)] <- "18 to 45"
+demo_before$age_cat[demo_before$age_entry>=45] <- "greater than 45"
+demo_before <- demo_before %>% 
+  mutate(subject_id = as.factor(study_id),
+         seq_variant = if_else(sgtf_flag=="1","Alpha","Other")) %>%
+  #filter(period=="Negative") %>%
+  mutate(booster = "not boosted",
+         first = if_else(subject_id %in% c("482", "483", "484"), "1", "0"),
+         full = "not",
+         bmi = as.numeric(bmi),
+         anti_rbd = ifelse(is.na(anti_rbd_igg_titer_1), NA,
+                                  ifelse(anti_rbd_igg_titer_1==-1, "No","Yes")),
+         anti_nuc = NA) %>% 
+  select(subject_id, age_entry, sex_birth,seq_variant, booster, first, full, age_cat, race, other_race, latino, bmi, cri, covid_booster_actual,real_onset, anti_rbd, anti_nuc, covid_shot_type) 
+
+demo_before <- demo_before %>% 
+  left_join(prior_fine_lod, by = "subject_id") %>% 
+  left_join(prior_coarse_lod, by = "subject_id")
+
+demo_before <- demo_before %>% 
+  mutate(fine_pos = if_else(is.na(fine_pos), "FALSE", fine_pos),
+         coarse_pos = if_else(is.na(coarse_pos), "FALSE", coarse_pos),
+         period = "Before",
+         covid_shot_type = if_else(is.na(covid_shot_type),"0",covid_shot_type),
+         booster_type = "0", # set to zero if NA
+         covid_booster_actual = "0",
+         symptomatic = if_else(is.na(real_onset), "No", "Yes"),
+         latino = factor(latino, 
+                          levels = c("0", "1", "9"),
+                          labels = c("Not Hispanic", "Hispanic", "Decline")))
+
+demo_after <- demo_after %>% 
+  mutate(subject_id = as.factor(subject_id)) %>% 
+  mutate(first ="1", 
+         full = "yes",
+         bmi = as.numeric(bmi),
+         anti_rbd = "Yes",
+         anti_nuc = ifelse(anti_nuc_igg_titer_1 == -1, "No", "Yes") ) %>% 
+  select(subject_id, age_entry, sex_birth,seq_variant, booster, first, full, age_cat, race, other_race, latino, bmi, cri,covid_shot_type,booster_type, covid_booster_actual,real_onset, anti_rbd, anti_nuc) 
+
+demo_after <- demo_after %>% 
+  left_join(latter_fine_lod, by = c("subject_id")) %>% 
+  left_join(latter_coarse_lod, by = c("subject_id")) %>% 
+  mutate(fine_pos = if_else(is.na(fine_pos), "FALSE", fine_pos),
+         coarse_pos = if_else(is.na(coarse_pos), "FALSE", coarse_pos),
+         period = "After",
+         cri = (cri==1),
+         symptomatic = if_else(is.na(real_onset), "No", "Yes"),
+         latino = factor(latino, 
+                          levels = c("0", "1", "9"),
+                          labels = c("Not Hispanic", "Hispanic", "Decline")))
+
+demo <- bind_rows(demo_before,demo_after)
+demo <- demo %>% mutate(seq_variant=factor(seq_variant,
+                                           levels = c("Other", "Alpha", "Delta", "Omicron BA.1", "Omicron BA.1.1","Omicron BA.2"),
+                                           labels = c("Other", "Alpha", "Delta", "Omicron BA.1", "Omicron BA.1.1","Omicron BA.2")))
+
+
+spr_before <- spr_before %>% 
+  mutate(subject_id = as.factor(study_id),
+         period = "Before") %>% 
+  select(subject_id, sample_date,sample_type, days_past_onset, cough_count, oral_temp, ox_sat, ur, lr, sys, gi, period)
+
+spr_after <- spr %>% 
+  mutate(subject_id = as.factor(subject_id),
+         period = "After") %>% 
+  select(subject_id, sample_date,sample_type,days_past_onset, cough_count, oral_temp, ox_sat,ur, lr, sys, gi,period)
+
+spr_total <- bind_rows(spr_after,spr_before)
+
+```
+
+Vaccine
+```{r}
+demo <- demo %>% mutate(covid_shot_type=factor(covid_shot_type,
+                                           levels = c("1", "2", "3", "4","0"),
+                                           labels = c("BNT162b2", "mRNA-1273", "Ad26.COV2.S", "NVX-CoV2373","Not vaccinated")),
+                        booster_type=factor(booster_type,
+                                           levels = c("1", "2", "4", "0"),
+                                           labels = c("BNT162b2", "mRNA-1273", "NVX-CoV2373", "Not boosted")))
+demo$booster_type[is.na(demo$booster_type) | demo$covid_booster_actual == "0"] <- "Not boosted"
+
+vax_booster_table <- table(demo$covid_shot_type, demo$booster_type)
+```
+Vaccination status
+```{r}
+demo$vacc_status <- demo %>% apply(1,function(x) {
+  if (x["period"]=="After" & x["booster"]=="boosted") {
+    y <- "Boosted"
+  }
+  if (x["period"]=="After" & x["booster"]=="not boosted") {
+    y <- "Fully vaccinated, not boosted"
+  }
+  if (x["period"]=="Before" & x["covid_shot_type"]=="Not vaccinated") {
+    y <- " Unvaccinated"
+  }
+  if (x["period"]=="Before" & x["covid_shot_type"]!="Not vaccinated") {
+    y <- "Partially vaccinated"
+  }
+  return(y)
+})
+```
+
+
+```{r}
+table_vacc <- table1(~ fine_pos+
+                        coarse_pos|full,
+                      data=demo, overall="All subjects")
+
+table_vacc
+#write.csv(table_vacc,file="../output/table_vacc.csv",row.names=F)
+table_booster <- table1(~ fine_pos+
+                        coarse_pos|booster,
+                      data=demo, overall="All subjects")
+
+table_booster
+#write.csv(table_booster,file="../output/table_booster.csv",row.names=F)
+```
+
+
+```{r}
+label(demo$sex_birth) <- "Sex"
+label(demo$age_entry) <-"Age"
+label(demo$age_cat) <- "Age group"
+label(demo$race) <- "Race"
+label(demo$other_race) <- "Other race"
+label(demo$bmi) <- "BMI"
+label(demo$cri) <- "Chronic respiratory illness"
+label(demo$seq_variant) <- "Variant"
+label(demo$booster) <- "Booster"
+```
+
+table1
+```{r}
+table1_demo <- table1(~ seq_variant+
+                        (sex_birth) +
+                        age_entry +
+                        (age_cat) +
+                        race +
+                        latino+
+                        bmi +
+                        as.character(cri) +
+                        vacc_status+
+                        covid_shot_type +
+                        booster+
+                        anti_rbd +
+                        anti_nuc+
+                        symptomatic
+                      |period, 
+                      data=demo, overall="All subjects")
+
+table1_demo
+```
+
+```{r}
+# since table1df has multiple rows that start with the same thing, use this cutoff function
+cutofftable <- function(t,v) {
+                startrow <- which(t$vars==v)
+                toutput <- t[c(startrow:nrow(t)),]
+                return(toutput)
+}
+
+# deal with sig figs: take "18.1 (36.7)" and return "18 (37)" if digits=0
+parenformat <- function(x,d) {
+                y1 <- x %>% strsplit(" \\(") %>% sapply(head,1) %>% as.numeric() %>% round(digits=d)
+                 y2 <- x %>% strsplit(" \\(") %>% sapply(tail,1) %>% gsub("\\)","",.) %>% as.numeric() %>% round(digits=d)
+                y <- paste0(y1," (",y2,")")
+                return(y)
+}
+
+# similar function: take "25.93 ± 8.51" and return "25.9 ± 8.5"
+plusminusformat <- function(x,d) {
+                y1 <- x %>% strsplit(" ± ") %>% sapply(head,1) %>% as.numeric() %>% round(digits=d)
+                y2 <- x %>% strsplit(" ± ") %>% sapply(tail,1) %>% as.numeric() %>% round(digits=d)
+                y <- paste0(y1," ± ",y2)
+                return(y)
+}
+```
+
+```{r export the table 1 output}
+
+table1df <- as.data.frame(read_html(table1_demo) %>% html_table(fill=T))
+firstrow <- colnames(table1df) %>% gsub("[^0-9]","",.)
+
+#names(firstrow) <- colnames(table1a)
+table1a <- matrix(firstrow,ncol=4) %>% as.data.frame(stringsAsFactors=F)
+colnames(table1a) <- c("vars","Enrolled September, 2021 - March, 2022","Enrolled June, 2020 - April 2021","All participants")
+table1a$vars[1] <- "Number of participants"
+
+colnames(table1df) <-  colnames(table1a)
+
+# exhaled breath samples count comes from nonpaired pcr_dat file
+negbreathcountdf <- spr_total %>% filter(period=="Before") %>% distinct(subject_id, sample_date, sample_type) %>% group_by(sample_type) %>% summarize(Cases = length(unique(subject_id)),`qPCR Samples` = n())
+negbreathcount <- negbreathcountdf %>% filter(grepl("G-II",sample_type)) %>% pull(`qPCR Samples`) %>% max()
+
+posbreathcountdf <- spr_total %>% filter(period=="After") %>% distinct(subject_id, sample_date, sample_type) %>% group_by(sample_type) %>% summarize(Cases = length(unique(subject_id)),`qPCR Samples` = n())
+posbreathcount <- posbreathcountdf %>% filter(grepl("G-II",sample_type)) %>% pull(`qPCR Samples`) %>% max()
+totalbreathcount <- negbreathcount+posbreathcount
+
+ebsrow <- c("Number of exhaled breath samples",posbreathcount,negbreathcount,totalbreathcount)
+names(ebsrow) <- colnames(table1a)
+table1a <- table1a %>% bind_rows(ebsrow)
+
+variantheader <- c("Variant, N(%)", "","","")
+names(variantheader) <- colnames(table1a)
+table1a <- table1a %>% bind_rows(variantheader)
+
+variantlabels <- c("Other", "Alpha", "Delta","Omicron BA.1", "Omicron BA.1.1", "Omicron BA.2")
+variant <- matrix(variantlabels,ncol=1) %>% as.data.frame(stringsAsFactors=F)
+colnames(variant) <- "vars"
+variant <- variant %>% left_join(table1df,by="vars")
+variant <- variant %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)}) %>% as.data.frame(stringsAsFactors=F)
+variant$vars <- c("Other", "Alpha", "Delta","Omicron BA.1","Omicron BA.1.1","Omicron BA.2")
+table1a <- table1a %>% bind_rows(variant)
+
+
+femalerow <- table1df %>% filter(vars=="0") %>% head(1)
+femalerow <- femalerow %>% gsub("%","",.) %>% parenformat(0)
+names(femalerow) <-  colnames(table1a)
+femalerow["vars"] <- "Female, N (%)"
+table1a <- table1a %>% bind_rows(femalerow)
+
+agemeanrow <- table1df %>% filter(vars=="Mean (SD)") %>% head(1)
+agemeanrow <- agemeanrow %>% gsub(" \\("," ± ",.) %>% gsub("\\)","",.) %>% plusminusformat(1)
+names(agemeanrow) <-  colnames(table1a)
+agemeanrow["vars"] <- "Age, mean ± SD"
+table1a <- table1a %>% bind_rows(agemeanrow)
+
+agegroupheader <- c("Age group, N(%)", "", "", "")
+names(agegroupheader) <- colnames(table1a)
+table1a <- table1a %>% bind_rows(agegroupheader)
+
+agegrouplabels <- c("less than 18","18 to 45","greater than 45")
+agegroups <- matrix(agegrouplabels,ncol=1) %>% as.data.frame(stringsAsFactors=F)
+colnames(agegroups) <- "vars"
+agegroups <- agegroups %>% left_join(table1df,by="vars")
+agegroups <- agegroups %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)}) %>% as.data.frame(stringsAsFactors=F)
+agegroups$vars <- c("<18","18-45",">45")
+table1a <- table1a %>% bind_rows(agegroups)
+
+raceheader <- c("Race/Ethnicity, N(%)", "", "", "")
+names(raceheader) <- colnames(table1a)
+table1a <- table1a %>% bind_rows(raceheader)
+
+whiterow <- table1df %>% filter(grepl("White",vars)) %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)})
+names(whiterow) <- colnames(table1a)
+whiterow["vars"] <- "White"
+table1a <- table1a %>% bind_rows(whiterow)
+
+blackrow <- table1df %>% filter(grepl("Black or African American",vars)) %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)})
+names(blackrow) <- colnames(table1a)
+blackrow["vars"] <- "Black/African American"
+table1a <- table1a %>% bind_rows(blackrow)
+
+
+hiscutoff <- cutofftable(table1df,"latino")
+hisrow <- table1df %>% filter(vars=="Hispanic") %>% head(1)%>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)})
+names(hisrow) <-  colnames(table1a)
+hisrow["vars"] <- "Hispanic"
+table1a <- table1a %>% bind_rows(hisrow)
+
+bmicutoff <- cutofftable(table1df,"BMI")
+bmirow <- bmicutoff %>% filter(vars=="Mean (SD)") %>% head(1) %>% gsub(" \\("," ± ",.) %>% gsub("\\)","",.) %>% plusminusformat(1)
+names(bmirow) <-  colnames(table1a)
+bmirow["vars"] <- "BMI, mean ± SD"
+table1a <- table1a %>% bind_rows(bmirow)
+
+#cri row
+cricutoff <- cutofftable(table1df,"as.character(cri)")
+crirow <- cricutoff %>% filter(vars=="TRUE") %>% head(1) %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)})
+names(crirow) <-  colnames(table1a)
+crirow["vars"] <- "Chronic respiratory illness, N (%)"
+table1a <- table1a %>% bind_rows(crirow)
+
+boosterheader <- c("Vaccination status, N(%)", "","","")
+names(boosterheader) <- colnames(table1a)
+table1a <- table1a %>% bind_rows(boosterheader)
+boosterlabels <- c("Boosted","Fully vaccinated, not boosted","Partially vaccinated", "Unvaccinated")
+booster <- matrix(boosterlabels,ncol=1) %>% as.data.frame(stringsAsFactors=F)
+colnames(booster) <- "vars"
+booster <- booster %>% left_join(table1df,by="vars")
+booster <- booster %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)}) %>% as.data.frame(stringsAsFactors=F)
+booster$vars <- c("Boosted","Fully vaccinated, not boosted","Partially vaccinated", "Unvaccinated")
+table1a <- table1a %>% bind_rows(booster)
+
+vaxheader <- c("Vaccine type, N(%)", "", "", "")
+names(vaxheader) <- colnames(table1a)
+table1a <- table1a %>% bind_rows(vaxheader)
+vaxlabels <- c("BNT162b2","mRNA-1273", "Ad26.COV2.S", "NVX-CoV2373","Not vaccinated")
+vax <- matrix(vaxlabels,ncol=1) %>% as.data.frame(stringsAsFactors=F)
+colnames(vax) <- "vars"
+vax <- vax %>% left_join(table1df,by="vars")
+vax <- vax %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)}) %>% as.data.frame(stringsAsFactors=F)
+vax$vars <- c("BNT162b2","mRNA-1273", "Ad26.COV2.S", "NVX-CoV2373","Not vaccinated")
+table1a <- table1a %>% bind_rows(vax)
+
+#rbd
+rbdcutoff <- cutofftable(table1df,"anti_rbd")
+rbdrow <- rbdcutoff %>% filter(vars=="Yes") %>% head(1) %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)})
+names(rbdrow) <-  colnames(table1a)
+rbdrow["vars"] <- "Anti-spike RBD antibody (IgG), N (%)"
+table1a <- table1a %>% bind_rows(rbdrow)
+
+#placeholder
+nuccutoff <- cutofftable(table1df,"anti_nuc")
+nucrow <- nuccutoff %>% filter(vars=="Yes") %>% head(1) %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)})
+names(nucrow) <-  colnames(table1a)
+nucrow["vars"] <- "Anti-nucleocapsid antibody (IgG), N (%)"
+table1a <- table1a %>% bind_rows(nucrow)
+
+
+symcutoff <- cutofftable(table1df,"symptomatic")
+symrow <- symcutoff %>% filter(vars=="Yes") %>% head(1) %>% apply(c(1,2),function(x) {x %>% gsub("%","",.) %>% parenformat(0)})
+names(symrow) <-  colnames(table1a)
+symrow["vars"] <- "Ever symptomatic, N (%)"
+table1a <- table1a %>% bind_rows(symrow)
+```
+
+Separate section to summarize symptoms
+This aggregates all reported scores on all the days exhaled breath samples were obtained
+```{r}
+breath_samples <- c("G-II Coarse Aerosol","G-II Coarse Aerosol mask","G-II Fine Aerosol","G-II Fine Aerosol mask")
+
+#filter breath samples
+sx_dat <- spr_total %>% filter(sample_type %in% c(breath_samples)) %>% filter(!is.na(days_past_onset))
+sx_dat_period <- list()
+sx_dat_period[["After"]] <- sx_dat %>% filter(period=="After")
+sx_dat_period[["Before"]] <- sx_dat %>% filter(period=="Before")
+sx_dat_period[["all"]] <- sx_dat %>% filter(period %in% c("After","Before"))
+
+sx_dat_period <- sx_dat_period %>% lapply(function(x) {
+                x %>% distinct(subject_id,sample_date,.keep_all=T)
+})
+
+
+summaryvars <- c("days_past_onset","cough_count","oral_temp","ox_sat","ur","lr","sys","gi")
+
+sx_period_summary <- summaryvars %>% lapply(function(y) {
+                sx_dat_period %>% sapply(function(x) {
+                                x %>% summarise(
+                                                av1=mean(eval(parse(text=y)),na.rm=T),
+                                                sd1=sd(eval(parse(text=y)),na.rm=T),
+                                                min1=min(eval(parse(text=y))),
+                                                max1=max(eval(parse(text=y))),
+                                                median1=median(eval(parse(text=y))),
+                                                q1=quantile(eval(parse(text=y)),0.25,na.rm=T),
+                                                q2=quantile(eval(parse(text=y)),0.75,na.rm=T))
+                                })
+})
+names(sx_period_summary) <- summaryvars
+sx_period_summary <- sx_period_summary %>% lapply(as.data.frame,stringsAsFactors=F)
+
+tastesmelltable <- sx_dat_period %>% lapply(function(x) {table(x$taste_smell_loss)})
+tastesmellpercentage <- tastesmelltable %>% lapply(function(x) {
+                x["1"]/(sum(x))
+}) %>% unlist() %>% `*`(100) %>% round(0) %>% paste0("%")
+```
+Make the table into a manuscript ready format
+```{r}
+table1b <- data.frame()
+# start with the day past symptom onset row for table 1b
+dporowmean <- sx_period_summary[["days_past_onset"]]["av1",] %>% unlist() %>% round(0)
+dporowsd <- sx_period_summary[["days_past_onset"]]["sd1",]  %>% unlist() %>% round(0)
+dporowmin <- sx_period_summary[["days_past_onset"]]["min",] %>% unlist %>% round(0)
+dporowmax <- sx_period_summary[["days_past_onset"]]["max",] %>% unlist %>% round(0)
+dporow <- mapply(FUN=function(x,y,z,w) {paste0(x," ± ",y," (",z,"-",w,")")},
+                   x=dporowmean, y=dporowsd, z=dporowmin, w=dporowmax) %>% c("days_past_onset",.)
+
+names(dporow) <- c("vars",names(sx_dat_period))
+table1b <- table1b %>% bind_rows(dporow)
+
+
+coughrowmean <- sx_period_summary[["cough_count"]]["av1",] %>% unlist() %>% round(0)
+coughrowsd <- sx_period_summary[["cough_count"]]["sd1",]  %>% unlist() %>% round(0)
+coughrowmin <- sx_period_summary[["cough_count"]]["min",] %>% unlist %>% round(0)
+coughrowmax <- sx_period_summary[["cough_count"]]["max",] %>% unlist %>% round(0)
+coughrow <- mapply(FUN=function(x,y,z,w) {paste0(x," ± ",y," (",z,"-",w,")")},
+                   x=coughrowmean, y=coughrowsd, z=coughrowmin, w=coughrowmax) %>% c("cough_count",.)
+
+names(coughrow) <- c("vars",names(sx_dat_period))
+table1b <- table1b %>% bind_rows(coughrow)
+
+symptable <- data.frame()
+symptablelist <- c("ur","lr","sys","gi")
+for (i in symptablelist) {
+  imedian <- sx_period_summary[[i]]["median1",] %>% unlist %>% round(1)
+  iq1 <- sx_period_summary[[i]]["q1",] %>% unlist %>% round(1)
+  iq2 <- sx_period_summary[[i]]["q2",] %>% unlist %>% round(1)
+  irow <- mapply(FUN = function(x,y,z) {paste0(x," (",y," - ",z,")")},
+                 x=imedian, y=iq1, z=iq2) %>% c(i,.)
+  names(irow) <- colnames(table1b)
+  symptable <- symptable %>% bind_rows(irow)
+}
+table1b <- table1b %>% bind_rows(symptable)
+
+temprowmean <- sx_period_summary[["oral_temp"]]["av1",] %>% unlist() %>% round(1)
+temprowsd <- sx_period_summary[["oral_temp"]]["sd1",] %>% unlist() %>% round(1)
+temprow <- mapply(FUN=function(x,y) {paste0(x," ± ",y)},
+                   x=temprowmean, y=temprowsd) %>% c("temp",.)
+names(temprow) <- colnames(table1b)
+table1b <- table1b %>% bind_rows(temprow)
+
+oxsatrowmean <- sx_period_summary[["ox_sat"]]["av1",] %>% unlist() %>% round(1)
+oxsatrowsd <- sx_period_summary[["ox_sat"]]["sd1",] %>% unlist() %>% round(1)
+oxsatrow <- mapply(FUN=function(x,y) {paste0(x," ± ",y)},
+                   x=oxsatrowmean, y=oxsatrowsd) %>% c("oxsat",.)
+names(oxsatrow) <- colnames(table1b)
+table1b <- table1b %>% bind_rows(oxsatrow)
+
+colnames(table1b) <- c("vars","Enrolled September, 2021 - March, 2022","Enrolled June, 2020 - April 2021","All participants")
+table1b$vars <- c("Days post symptom onset, mean± SD (range)","Coughs per 30 min, mean± SD (range)","Median upper respiratory symptoms (IQR)","Median lower respiratory symptoms (IQR)","Median systemic symptoms (IQR)","Median gastrointestinal symptoms (IQR)","Temperature (C), mean ± SD","Oxygen saturation (SpO2), mean ± SD")
+```
+bind and write tables
+```{r}
+table_1_formatted <- bind_rows(table1a,table1b)
+table_1_formatted <- table_1_formatted[, c("vars","Enrolled June, 2020 - April 2021","Enrolled September, 2021 - March, 2022","All participants")]
+write.csv(table_1_formatted,file="../output/tab1_demo.csv",row.names=F)
+
+```
+
+Table 1 comparison
+comparison of participant characteristics - demographics
+```{r eval=FALSE, include=FALSE}
+demo <- demo %>% mutate(period = as.factor(period))
+table1c <- matrix(ncol=3, nrow=0) %>% as.data.frame(stringsAsFactors=F)
+###T-test
+ttest_list <- c("age_entry", "bmi")
+for (i in ttest_list){
+  lttest <- leveneTest(eval(parse(text=i)) ~ period, data = demo)
+  if (lttest$`Pr(>F)`[1] >= 0.05) {
+    ttest_vars <- t.test(eval(parse(text=i)) ~ period, data = demo, var.equal= T)
+  }
+  else{
+    ttest_vars<-t.test(eval(parse(text=i)) ~ period, data = demo, var.equal= F)
+  }
+  if (ttest_vars$p.value >=0.05){
+    note <- "-"
+  }
+  else{
+    note <- "*"
+  }
+  table1c <- table1c %>% rbind(c(i,ttest_vars$p.value,note))
+}
+
+###Chi-square test
+chisq_list <- c("sex_birth", "race", "latino","cri",)
+for (i in chisq_list){
+  chitest <- chisq.test(demo[,i], demo$period)
+  if(chitest$p.value >=0.05){
+    note <- "-"
+  }
+  else{
+    note <- "*"
+  }
+  table1c <- table1c %>% rbind(c(i,chitest$p.value,note))
+}
+
+###Fisher's exact
+fish_list <- c("seq_variant","age_cat",  "vacc_status","anti_rbd","anti_nuc","symptomatic")
+for (i in fish_list){
+  fishtest <- fisher.test(demo[,i], demo$period)
+  if(fishtest$p.value >=0.05){
+    note <- "-"
+  }
+  else{
+    note <- "*"
+  }
+  table1c <- table1c %>% rbind(c(i,fishtest$p.value,note))
+}
+colnames(table1c) <- c("Var", "p-value", "less than 0.05? (*)")
+table1c 
+#write.csv(table1c,file="../output/table_1_comparison_values.csv",row.names=F)
+```
+
+comparison of participant characteristics - symptoms
+(The below lines don't seem to be right. Will need to update the coding to create the symptom comparison, especially for the oral temp)
+```{r eval=FALSE, include=FALSE}
+data_compare <- as.data.frame(sx_dat_period[["all"]]) %>% mutate(period = factor(period))
+data_before <- as.data.frame(sx_dat_period[["Before"]])
+data_after <- as.data.frame(sx_dat_period[["After"]])
+
+vars2 <- c("days_past_onset","cough_count","ur","lr","sys","gi","oral_temp","ox_sat")
+aggregate_allvars <- vars2 %>% lapply(function(x) {
+  aggregate(eval(parse(text=x)) ~ period, data = data_compare, sd)
+})
+names(aggregate_allvars) <- vars2
+
+for (i in 1:length(aggregate_allvars)) {
+  colnames(aggregate_allvars[[i]])[colnames(aggregate_allvars[[i]])=="eval(parse(text = x))"] <- vars2[i]
+}
+aggregate_df <- aggregate_allvars[[1]]
+
+for (i in 2:length(aggregate_allvars)) {
+  aggregate_df <- aggregate_df %>% left_join(aggregate_allvars[[i]],by="period")
+}
+aggregate_df$test <- aggregate_df$period %>% paste0("aggregate.",.)
+
+homo_vars <- vars2 %>% lapply(function(x) {
+  leveneTest(eval(parse(text=x)) ~ period, data = data_compare)
+})
+names(homo_vars) <- vars2
+homo_vars_pr_f <- homo_vars %>% sapply(function(x) {x %>% select(`Pr(>F)`) %>% filter(!is.na(`Pr(>F)`))}) %>% bind_rows()
+colnames(homo_vars_pr_f) <- colnames(homo_vars_pr_f) %>% gsub("\\.Pr\\(>F\\)","",.)
+homo_vars_pr_f$test <- "homo.Pr(>F)"
+
+ttest_vars <- vars2 %>% sapply(function(x) {
+  t.test(eval(parse(text=x)) ~ period, data = data_compare,var.equal= T) %>% `[[`("p.value")
+})
+ttest_vars$test <- "ttest.pvalue"
+alltests2 <- bind_rows(aggregate_df,homo_vars_pr_f,ttest_vars) %>% select(test,all_of(vars2))
+
+alltests2[,vars2] <- alltests2[,vars2] %>% apply(c(1,2),signif,2)
+```

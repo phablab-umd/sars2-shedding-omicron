@@ -1,0 +1,211 @@
+---
+title: "EBA_vax_booster"
+author: "Jianyu"
+date: "4/5/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(grid)
+library(ggpubr)
+library(gridExtra)
+set.seed(42)
+```
+
+Difference from the aerosol_mts_plot.Rmd:
+limit to those with some detection in aerosol samples and lump the two Omicrons together
+```{r include=FALSE}
+# Theme for display parameters
+
+scale_color_variant <- scale_color_manual(values = c("pre-Alpha" = "#984ea3",
+                                                     "Alpha"="#386cb0",
+                                                     "Delta"="#7fc97f",
+                                                     "Omicron" = "#ef3b2c"))
+scale_shape_variant <- scale_shape_manual(values = c("pre-Alpha" = 15,
+                                                     "Alpha"=16,
+                                                     "Delta"=17,
+                                                     "Omicron" = 18))
+
+scale_color_variant3 <- scale_color_manual(values = c("pre-Alpha" = "#984ea3",
+                                                     "Alpha"="#386cb0",
+                                                     "Delta"="#7fc97f",
+                                                     "Omicron BA.1" = "#a6cee3",
+                                                     "Omicron BA.2" = "#662506"))
+scale_shape_variant3 <- scale_shape_manual(values = c("pre-Alpha" = 15,
+                                                     "Alpha"=16,
+                                                     "Delta"=17,
+                                                     "Omicron BA.1" = 18,
+                                                     "Omicron BA.2" = 19))
+```
+
+```{r}
+spr <- read.csv(file = "../working_files/nonpaired_pcr_sx_spr.csv")
+spr <- spr %>% 
+  mutate(log_quant = if_else(av_quant == 0, 0, log10(av_quant)),
+         subject_id = as.factor(subject_id))
+
+stat_box_data <- function(y, upper_limit = max(iris$Sepal.Length) * 1.15) {
+  data.frame(
+    y = -0.02 * upper_limit,
+    label = paste0('n=', length(y), '\n')
+  )
+}
+
+fine_complete <- spr %>% 
+  filter(sample_type == "G-II Fine Aerosol") %>%
+  mutate(fine_av_quant = av_quant, fine_log_quant = log_quant)  
+
+coarse_complete <- spr %>% 
+  filter(sample_type == "G-II Coarse Aerosol") %>%
+  mutate(coarse_av_quant = av_quant, coarse_log_quant = log_quant)
+coarse <- coarse_complete %>% select(subject_id, coarse_av_quant, coarse_log_quant, sample_date)
+
+
+#create dataset including all the breath samples:breath_after
+breath_after <- fine_complete %>% 
+  left_join(coarse, by = c("subject_id", "sample_date")) %>% 
+  mutate(av_quant_total = coarse_av_quant + fine_av_quant)
+
+breath_after <- breath_after %>% 
+  mutate(av_quant_total_log10 = if_else((av_quant_total == 0), 0, log10(av_quant_total)))
+
+
+breath_after <- breath_after %>% 
+  mutate(sample_date2 = as.Date(sample_date, origin="1970-01-01"),
+         covid_booster = if_else(covid_booster_actual == 0, "No", "Yes"))
+```
+
+```{r}
+# without boxplots
+booster_eba_plot_no_box <- function(data, sample_value, name,legend_show,note_text) {
+  plot <- data %>% 
+    ggplot(aes(x = sample_date2, y = eval(parse(text=sample_value))))+
+    geom_point(size = 2, aes(color=covid_booster, shape = covid_booster),show.legend = legend_show)+
+    #geom_boxplot(aes(color=covid_booster))+
+    coord_cartesian(ylim = c(0, 8), expand = TRUE)+
+    theme_bw()+
+    #scale_shape_variant+
+    #scale_color_variant+
+    scale_x_date(date_labels = "%b %Y", breaks = "1 month")+
+    labs(x= " ", 
+         y=paste(name, "log10(RNA)"),
+         color = "Boosted",
+         shape = "Boosted")+
+      ggtitle(note_text) +
+    theme(axis.text.x=element_text(size = 15, face='bold', angle = 0),
+          axis.text.y=element_text(size = 15, face='bold'),
+          axis.title.x=element_text(size=15, face='bold'),
+          axis.title.y=element_text(size=15, face='bold'),
+          legend.text = element_text(size = 15),
+          legend.title = element_text(size = 15, face='bold'),
+          plot.title = element_text(size = 20, face = "bold")) +
+     guides(shape = guide_legend(override.aes = list(size = 5)))+
+    theme(legend.position="bottom")
+  return(plot) 
+}
+
+# create pairwise comparisons
+booster_eba_plot_box <- function(data, sample_value, name,note_text){
+  #test <- wilcox.test(eval(parse(text=sample_value)) ~ covid_booster, data=data) 
+  #note <- paste0("Mann-Whitney U-test,"," p=", signif(test$p.value, 2))
+  plot <- data %>% 
+    ggplot(aes(x = covid_booster, y = eval(parse(text=sample_value))))+
+    #geom_point(size = 2, aes(color=covid_booster, shape = covid_booster))+
+    geom_boxplot(aes(color=covid_booster),show.legend = FALSE)+
+    coord_cartesian(ylim = c(-1, 8), expand = TRUE)+
+    theme_bw()+
+    stat_summary(
+      fun.data = stat_box_data, 
+      geom = "text", 
+      hjust = 0.5,
+      vjust = 0.9,
+      size=3,
+      position = position_dodge(0.9)
+    ) +
+    stat_compare_means(label.y=7, size=3)+
+    labs(x= " ", 
+         y=" ",
+         color = "Boosted",
+         shape = "Boosted")+
+    ggtitle(note_text)+
+    theme(axis.text.x=element_text(size = 15, face='bold', angle = 0),
+          axis.text.y=element_text(size = 15, face='bold'),
+          axis.title.x=element_text(size=15, face='bold'),
+          axis.title.y=element_text(size=15, face='bold'),
+          legend.text = element_text(size = 20),
+          legend.title = element_text(size = 20, face='bold'),
+          plot.title = element_text(size = 20, face = "bold"))+
+    theme(legend.position="bottom")
+  
+  return(plot) 
+}
+
+```
+legend only
+```{r}
+## Function to extract legend
+g_legend <- function(a.gplot){ 
+    tmp <- ggplot_gtable(ggplot_build(a.gplot)) 
+    leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box") 
+    legend <- tmp$grobs[[leg]] 
+    legend
+} 
+plot <-booster_eba_plot_no_box(breath_after %>% filter(!(seq_variant=="Delta")), "av_quant_total_log10", "Total",TRUE,"e")
+legend <- g_legend(plot)
+
+```
+combine the plots
+```{r}
+a <- booster_eba_plot_no_box(breath_after %>% filter(!(seq_variant=="Delta")), "fine_log_quant", "Fine",FALSE,"a")
+b <- booster_eba_plot_box(breath_after %>% filter(!(seq_variant=="Delta")), "fine_log_quant", "Fine","b")
+c <- booster_eba_plot_no_box(breath_after %>% filter(!(seq_variant=="Delta")), "coarse_log_quant", "Coarse",FALSE,"c")
+d <- booster_eba_plot_box(breath_after %>% filter(!(seq_variant=="Delta")), "coarse_log_quant", "Coarse","d")
+e <- booster_eba_plot_no_box(breath_after %>% filter(!(seq_variant=="Delta")), "av_quant_total_log10", "Total",FALSE,"e")
+f <- booster_eba_plot_box(breath_after %>% filter(!(seq_variant=="Delta")), "av_quant_total_log10", "Total","f")
+```
+
+```{r}
+total <- grid.arrange(a, b,
+                     c, d,
+                     e, f,
+                     legend,
+                      ncol=5, nrow=4,
+                      layout_matrix = rbind(c(1,1,2),
+                                            c(3,3,4),
+                                            c(5,5,6),
+                                            c(7,7,7)),
+                      heights = c(3,3,3,1))
+
+ggsave(total,filename="../output/si_fig5_eba_by_booster_status.png",device="png",width=11,height=7.77,units="in")
+```
+
+cone swab
+```{r}
+cone <- spr %>% 
+  filter(sample_type == "G-II Cone Swab") %>%
+  mutate(cone_av_quant = av_quant, cone_log_quant = log_quant) %>% 
+  select(subject_id, cone_av_quant, cone_log_quant, sample_date)
+
+breath_after <- breath_after %>% 
+  left_join(cone, by = c("subject_id", "sample_date"))
+```
+
+```{r}
+cone_plot <- breath_after %>% 
+  filter(!(seq_variant=="Delta")) %>% 
+  ggplot(aes(y=cone_log_quant, x=booster))+
+  geom_boxplot()+
+  stat_compare_means()+
+  labs(y="Cone swab log10 RNA")+
+  theme_bw()
+cone_plot
+
+non_boosted <- breath_after %>% filter(!(seq_variant=="Delta")) %>% filter(booster == "not boosted") %>% select(subject_id, sample_date, seq_variant, booster, cone_av_quant, coarse_av_quant, fine_av_quant)
+View(non_boosted)
+
+boosted <- breath_after %>% filter(!(seq_variant=="Delta")) %>% filter(booster == "boosted") %>% select(subject_id, sample_date,seq_variant,  booster, cone_av_quant, coarse_av_quant, fine_av_quant)
+View(boosted)
+```
+

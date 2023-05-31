@@ -1,0 +1,3 @@
+"x"
+"fine: Inf coarse: 11 total: 11"
+"fine: -Inf coarse: 11 total: 11"

@@ -1,0 +1,253 @@
+---
+title: "plots_by_omicron"
+author: "Jianyu"
+date: "3/9/2022"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(grid)
+library(gridExtra)
+library(ggpubr)
+set.seed(42)
+```
+
+```{r}
+spr_before <- read.csv(file = "../working_files/manuscript_1_all_61_nonpaired_pcr_sx_spr.csv")
+spr <- read.csv(file = "../working_files/nonpaired_pcr_sx_spr.csv")
+spr <- spr %>% mutate(variant2 = if_else(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1", "Omicron BA.2"), "Omicron", seq_variant))
+spr <- spr %>% mutate(variant3 = if_else(seq_variant %in% c("Omicron BA.1.1","Omicron BA.1"), "Omicron BA.1", seq_variant))
+samples_of_interest <- c("G-II Fine Aerosol", "G-II Coarse Aerosol", "Midturbinate Swab")
+
+spr_before <- spr_before %>% 
+  #filter(days_past_onset <=7) %>% 
+  mutate(log_quant = if_else(av_quant == 0, 0, log10(av_quant)),
+         subject_id = as.factor(study_id),
+         days_past_onset = as.factor(days_past_onset),
+         period = "Before Sep 2021",
+         variant2 = if_else(S.gene.dropout == "TRUE", "Alpha", "Other")) %>% 
+  mutate(seq_variant = variant2,
+         variant3 = variant2)
+length(unique(spr_before$subject_id))
+
+before_sub <- spr_before %>% 
+  filter(sample_type %in% samples_of_interest) %>% 
+  select(subject_id, sample_date, av_quant, log_quant, sample_type, period, days_past_onset, variant2, variant3, seq_variant)
+
+spr <- spr %>% 
+  mutate(log_quant = if_else(av_quant == 0, 0, log10(av_quant)),
+         subject_id = as.factor(subject_id),
+         days_past_onset = as.factor(days_past_onset),
+         period = "After Sep 2021")
+
+now_sub <- spr %>% filter(sample_type %in% samples_of_interest) %>% 
+  select(subject_id, sample_date, av_quant, log_quant, sample_type, period, days_past_onset, variant2, variant3, seq_variant)
+
+breath_mts_total <- bind_rows(now_sub,before_sub)
+
+breath_mts_total <- breath_mts_total %>% 
+  mutate(seq_variant = factor(seq_variant, 
+                          levels = c("Omicron BA.1","Omicron BA.1.1","Omicron BA.2"),
+                          labels = c("BA.1","BA.1.1","BA.2")))
+
+breath_mts_total <- breath_mts_total %>% mutate(omicron = if_else(variant2 == "Omicron", "Yes", "No"))
+```
+prepare complete dataset and dataset limited data to at least one of the breath samples is not 0 per subject-sample_date:
+```{r}
+stat_box_data <- function(y, upper_limit = 9.085) {
+  data.frame(
+    y = -0.02 * upper_limit,
+    label = paste0('n=', length(y), '\n')
+  )
+}
+
+fine_complete <- breath_mts_total %>% 
+  filter(sample_type == "G-II Fine Aerosol") %>%
+  mutate(fine_av_quant = av_quant, fine_log_quant = log_quant) %>% 
+  select(subject_id, fine_av_quant, fine_log_quant, days_past_onset, sample_date, period, variant2, omicron, variant3,seq_variant) 
+fine_complete_sub <- fine_complete %>% filter(fine_av_quant !=0)  
+
+coarse_complete <- breath_mts_total %>% 
+  filter(sample_type == "G-II Coarse Aerosol") %>%
+  mutate(coarse_av_quant = av_quant, coarse_log_quant = log_quant) %>% 
+  select(subject_id, coarse_av_quant, coarse_log_quant, days_past_onset, sample_date, period, variant2, omicron, variant3, seq_variant)
+coarse <- coarse_complete %>% select(subject_id, coarse_av_quant, coarse_log_quant, sample_date)
+coarse_complete_sub <- coarse_complete %>% filter(coarse_av_quant !=0)
+
+mts_complete <- breath_mts_total %>% 
+  filter(sample_type == "Midturbinate Swab") %>%
+  mutate(mts_av_quant = av_quant, mts_log_quant = log_quant) %>% 
+  select(subject_id, mts_av_quant, mts_log_quant, days_past_onset, sample_date, period, variant2, omicron, variant3, seq_variant)
+
+mts <- mts_complete %>% select(subject_id, mts_av_quant, mts_log_quant, sample_date) 
+
+#create dataset limited to at least one of the breath samples is non-zero: breath_mts_total_wide1
+breath_mts_total_wide1 <- fine_complete_sub %>% 
+  full_join(coarse_complete_sub, by = c("subject_id", "sample_date")) %>% 
+  mutate(coarse_av_quant = if_else(is.na(coarse_av_quant), 0, coarse_av_quant),
+         coarse_log_quant = if_else(is.na(coarse_log_quant), 0, coarse_log_quant),
+         fine_av_quant = if_else(is.na(fine_av_quant), 0, fine_av_quant),
+         fine_log_quant = if_else(is.na(fine_log_quant), 0, fine_log_quant),
+         days_past_onset = if_else(is.na(days_past_onset.y), days_past_onset.x, days_past_onset.y),
+         period = if_else(is.na(period.y), period.x, period.y),
+         variant2 = if_else(is.na(variant2.y), variant2.x, variant2.y),
+         omicron = if_else(is.na(omicron.y), omicron.x, omicron.y),
+         variant3 = if_else(is.na(variant3.y), variant3.x, variant3.y),
+         seq_variant = if_else(is.na(seq_variant.y), seq_variant.x, seq_variant.y)) %>% 
+  mutate(av_quant_total = coarse_av_quant + fine_av_quant)
+
+breath_mts_total_wide1 <- breath_mts_total_wide1 %>% 
+  mutate(av_quant_total_log10 = if_else((av_quant_total == 0), 0, log10(av_quant_total)))
+
+breath_mts_total_wide1 <- breath_mts_total_wide1 %>% 
+  left_join(mts, by = c("subject_id", "sample_date")) %>% 
+  mutate(log_mts_coarse_ratio = log10(mts_av_quant/(coarse_av_quant+1)),
+         log_mts_fine_ratio = log10(mts_av_quant/(fine_av_quant+1)),
+         log_mts_total_ratio = log10(mts_av_quant/(av_quant_total+1)),
+         mts_coarse_ratio =  mts_av_quant/(coarse_av_quant+1),
+         mts_fine_ratio = mts_av_quant/(fine_av_quant+1),
+         mts_total_ratio = mts_av_quant/(av_quant_total+1))
+
+#create dataset including all the breath samples:breath_mts_total_wide2
+breath_mts_total_wide2 <- fine_complete %>% 
+  left_join(coarse, by = c("subject_id", "sample_date")) %>% 
+  mutate(av_quant_total = coarse_av_quant + fine_av_quant)
+
+breath_mts_total_wide2 <- breath_mts_total_wide2 %>% 
+  mutate(av_quant_total_log10 = if_else((av_quant_total == 0), 0, log10(av_quant_total)))
+
+breath_mts_total_wide2 <- breath_mts_total_wide2 %>% 
+  left_join(mts, by = c("subject_id", "sample_date")) %>% 
+  mutate(log_mts_coarse_ratio = log10(mts_av_quant/(coarse_av_quant+1)),
+         log_mts_fine_ratio = log10(mts_av_quant/(fine_av_quant+1)),
+         log_mts_total_ratio = log10(mts_av_quant/(av_quant_total+1)),
+         mts_coarse_ratio =  mts_av_quant/(coarse_av_quant+1),
+         mts_fine_ratio = mts_av_quant/(fine_av_quant+1),
+         mts_total_ratio = mts_av_quant/(av_quant_total+1))
+
+length(unique(breath_mts_total_wide2$subject_id))
+```
+for omicron only
+```{r}
+breath_mts_total_wide2 <- breath_mts_total_wide2 %>% mutate(sample_date2 = as.Date(sample_date, origin="1970-01-01"))
+
+#with boxplots
+sample_plot_by_variant_by_day5 <- function(data, sample_value, name,note_text) {
+  plot <- data %>% filter(omicron == "Yes") %>% 
+    ggplot(aes(x = seq_variant, y = eval(parse(text=sample_value))))+
+    geom_boxplot(aes(color=seq_variant),show.legend = FALSE)+
+    coord_cartesian(ylim = c(-1, 8),
+                    expand = TRUE)+
+    theme_bw()+
+    stat_summary(
+      fun.data = stat_box_data, 
+      geom = "text", 
+      hjust = 0.5,
+      vjust = 0.9,
+      size=3,
+      position = position_dodge(0.9)
+    ) +
+    labs(x= " ", 
+         y=" ",
+         color = "Omicron subvariant",
+         shape = "Omicron subvariant")+
+    stat_compare_means(label.y=7, size=3)+
+    ggtitle(note_text)+
+    theme(axis.text.x=element_text(size = 11, face='bold', angle = 0),
+          axis.text.y=element_text(size = 15, face='bold'),
+          axis.title.x=element_text(size=15, face='bold'),
+          axis.title.y=element_text(size=15, face='bold'),
+          plot.title=element_text(size=20, face="bold")) +
+    theme(legend.position="bottom")
+  return(plot) 
+}
+
+full_EBA_by_variant_by_date5 <- ggarrange(
+  sample_plot_by_variant_by_day5(breath_mts_total_wide2, "fine_log_quant", "Fine","A"),
+  sample_plot_by_variant_by_day5(breath_mts_total_wide2, "coarse_log_quant", "Coarse","B"),
+  sample_plot_by_variant_by_day5(breath_mts_total_wide2, "av_quant_total_log10", "Total","C"),
+  labels = c("a", "b", "c"),
+  ncol = 1, nrow=3,
+  common.legend = T,
+  legend = "bottom",
+  align = "h")
+full_EBA_by_variant_by_date5
+
+#ggsave(full_EBA_by_variant_by_date5,filename="../output/full_EBA_by_variant_by_date5_omicron.png",device="png",width=11,height=7.77,units="in")
+
+#without boxplots
+sample_plot_by_variant_by_day6 <- function(data, sample_value, name,legend_show,note_text) {
+  plot <- data %>% filter(omicron == "Yes") %>% 
+    ggplot(aes(x = sample_date2, y = eval(parse(text=sample_value))))+
+    geom_point(size = 2, aes(color=seq_variant, shape = seq_variant),show.legend = legend_show)+
+    #geom_boxplot(aes(color=seq_variant), alpha = 0.1)+
+    coord_cartesian(ylim = c(0, 8), 
+                    xlim = c(as.Date("2021-12-13"), as.Date("2022-03-21")),
+                    expand = TRUE)+
+    theme_bw()+
+    scale_x_date(date_labels = "%d/%b/%Y", breaks = "1 month")+
+    labs(x= " ", 
+         y=paste(name), 
+         color = "Omicron subvariant",
+         shape = "Omicron subvariant")+
+    ggtitle(note_text)+
+    theme(axis.text.x=element_text(size = 15, face='bold', angle = 0),
+          axis.text.y=element_text(size = 15, face='bold'),
+          axis.title.x=element_text(size=15, face='bold'),
+          axis.title.y=element_text(size=15, face='bold'),
+          legend.text = element_text(size = 15),
+          legend.title = element_text(size = 15, face='bold'),
+          plot.title=element_text(size=20, face="bold")) +
+     guides(shape = guide_legend(override.aes = list(size = 5)))+
+    theme(legend.position="bottom") 
+  return(plot) 
+}
+
+full_EBA_by_variant_by_date6 <- ggarrange(
+  sample_plot_by_variant_by_day6(breath_mts_total_wide2, "fine_log_quant", "Fine",FALSE,"A"),
+  sample_plot_by_variant_by_day6(breath_mts_total_wide2, "coarse_log_quant", "Coarse",FALSE,"B"),
+  sample_plot_by_variant_by_day6(breath_mts_total_wide2, "av_quant_total_log10", "Total",TRUE,"C"),
+  #labels = c("A", "B", "C"),
+  ncol = 1, nrow=3,
+  common.legend = T,
+  legend = "bottom",
+  align = "h")
+full_EBA_by_variant_by_date6
+
+#ggsave(full_EBA_by_variant_by_date6,filename="../output/full_EBA_by_variant_by_date6_omicron.png",device="png",width=11,height=7.77,units="in")
+
+# function to extract legend
+g_legend <- function(a.gplot) { 
+  tmp <- ggplot_gtable(ggplot_build(a.gplot)) 
+  leg <- which(sapply(tmp$grobs, function(x) x$name) == "guide-box") 
+  legend <- tmp$grobs[[leg]] 
+  return(legend)
+} 
+plot <- sample_plot_by_variant_by_day6(breath_mts_total_wide2, "av_quant_total_log10", "Total",TRUE,"e")
+legend <- g_legend(plot)
+```
+combine the plots
+```{r}
+a <- sample_plot_by_variant_by_day6(breath_mts_total_wide2, "fine_log_quant", "Fine",FALSE,"a")
+b <- sample_plot_by_variant_by_day5(breath_mts_total_wide2, "fine_log_quant", "Fine","b")
+c <- sample_plot_by_variant_by_day6(breath_mts_total_wide2, "coarse_log_quant", "Coarse",FALSE,"c")
+d <- sample_plot_by_variant_by_day5(breath_mts_total_wide2, "coarse_log_quant", "Coarse","d")
+e <- sample_plot_by_variant_by_day6(breath_mts_total_wide2, "av_quant_total_log10", "Total",FALSE,"e")
+f <- sample_plot_by_variant_by_day5(breath_mts_total_wide2, "av_quant_total_log10", "Total","f")
+```
+
+```{r}
+total <- grid.arrange(a, b,
+                     c, d,
+                     e, f,
+                     legend,
+                      ncol=5, nrow=4,
+                      layout_matrix = rbind(c(1,1,2),
+                                            c(3,3,4),
+                                            c(5,5,6),
+                                            c(7,7,7)),
+                      heights = c(3,3,3,1))
+
+ggsave(total,filename="../output/si_fig2_omicron_variants.png",device="png",width=11,height=7.77,units="in")
+```
